@@ -1,0 +1,1030 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- NYORO-RIN prototype (reference only; docs/DESIGN.md is the source of truth) -->
+<title>スリザーリンク練習帳</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800&family=Zen+Maru+Gothic:wght@500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one column, board-first; controls in a thumb-reachable strip under the board */
+:root {
+  --bg: #e9efe8; --surface: #f7faf5; --ink: #1d2a22; --muted: #5f7166;
+  --moss: #3d6b50; --moss-ink: #f2f7f1; --loop: #d99a06; --line: #c9d4cb;
+  --bad: #c43d2f; --hint: #2f6fd1;
+  --f-disp: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", system-ui, sans-serif;
+  --f-num: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111814; --surface: #19221c; --ink: #e2ebe4; --muted: #8fa396;
+  --moss: #4f8a68; --moss-ink: #f4faf5; --loop: #f2b632; --line: #2c3a31;
+  --bad: #ff7a6b; --hint: #7fb0ff; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #111814; --surface: #19221c; --ink: #e2ebe4; --muted: #8fa396;
+  --moss: #4f8a68; --moss-ink: #f4faf5; --loop: #f2b632; --line: #2c3a31;
+  --bad: #ff7a6b; --hint: #7fb0ff; color-scheme: dark; }
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: var(--f-disp); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px 32px; }
+.wrap { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h1 { margin: 0; font-size: 1.6rem; font-weight: 700; letter-spacing: .02em; text-wrap: balance; }
+h1 span { color: var(--moss); }
+.timer { font-family: var(--f-mono); font-size: 1.15rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.meta { font-size: .8rem; color: var(--muted); letter-spacing: .04em; }
+.status { min-height: 2.8em; font-size: .92rem; line-height: 1.45; color: var(--ink); }
+#board { position: relative; background: var(--surface); border-radius: 14px; padding: 6px; box-shadow: 0 1px 0 var(--line), 0 10px 30px -18px rgba(20,40,30,.45); }
+#board.busy { opacity: .45; }
+#svg { display: block; width: 100%; height: auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.bg { fill: var(--surface); }
+.fill-in { fill: var(--moss); opacity: .16; }
+.dot { fill: var(--ink); opacity: .6; }
+.dot.bad { fill: var(--bad); opacity: 1; }
+.ln { stroke: var(--loop); stroke-width: 5.5; stroke-linecap: round; }
+.ln.bad { stroke: var(--bad); }
+.cross { stroke: var(--muted); stroke-width: 2; stroke-linecap: round; fill: none; opacity: .8; }
+text { font-family: var(--f-num); font-weight: 800; font-size: 23px; text-anchor: middle; dominant-baseline: central; pointer-events: none; fill: var(--ink); }
+text.done { opacity: .3; }
+text.bad { fill: var(--bad); }
+.h-focus { fill: none; stroke: var(--hint); stroke-width: 3.5; animation: pulse 1.1s ease-in-out infinite; }
+.h-edge { stroke: var(--hint); stroke-width: 8; stroke-linecap: round; opacity: .55; stroke-dasharray: 3 9; animation: pulse 1.1s ease-in-out infinite; }
+.h-edge.wrong { stroke: var(--bad); }
+.h-cross { stroke: var(--hint); stroke-width: 2.5; stroke-linecap: round; fill: none; animation: pulse 1.1s ease-in-out infinite; }
+.cross.auto { stroke-width: 1.6; opacity: .45; }
+.g-focus { fill: var(--loop); opacity: .16; stroke: var(--loop); stroke-width: 1.5; stroke-opacity: .8; }
+.assists { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.assists span { font-size: .8rem; color: var(--muted); margin-right: 2px; }
+.assist { flex: 1; min-height: 36px; padding: 6px 8px; font-size: .82rem; }
+.assist[aria-pressed="true"] { background: var(--moss); color: var(--moss-ink); border-color: var(--moss); }
+.h-area { fill: var(--hint); opacity: .14; }
+@keyframes pulse { 50% { opacity: .3; } }
+#board.solved .ln { animation: glow 1.4s ease-out; }
+@keyframes glow { 0% { stroke-width: 5.5; } 35% { stroke-width: 10; } 100% { stroke-width: 5.5; } }
+.tools { display: flex; gap: 6px; }
+.tool { flex: 1; }
+button, select, input[type=text] { font: inherit; color: var(--ink); }
+button { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 10px 12px; font-size: .9rem; cursor: pointer; min-height: 44px; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--hint); outline-offset: 2px; }
+.tool[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.sw { display: inline-block; width: .9em; height: .9em; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+.sw.in { background: var(--loop); height: .25em; vertical-align: 3px; width: 1.1em; }
+.sw.out { font-weight: 700; }
+.actions { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 6px; }
+#btn-hint { background: var(--moss); color: var(--moss-ink); border-color: var(--moss); font-weight: 700; }
+details { border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; font-size: .9rem; color: var(--muted); padding: 4px 0; }
+.settings { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row label { font-size: .85rem; color: var(--muted); }
+select { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px; min-height: 40px; }
+input[type=text] { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 10px; font-family: var(--f-mono); min-height: 40px; }
+#btn-new { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.rules { font-size: .85rem; line-height: 1.7; color: var(--muted); margin: 0; padding-left: 1.2em; }
+[hidden] { display: none !important; }
+#svg, #zsvg { -webkit-touch-callout: none; }
+#zoom { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--bg) 55%, transparent); border-radius: 14px; z-index: 2; }
+.zbox { position: relative; width: 92%; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 40px -18px rgba(0,0,0,.5); overflow: hidden; }
+.zhead { position: absolute; top: 6px; right: 6px; z-index: 1; }
+.zhead button { min-height: 36px; padding: 6px 12px; background: color-mix(in srgb, var(--surface) 88%, transparent); }
+#zsvg { cursor: grab; display: block; width: 100%; height: auto; touch-action: none; user-select: none; -webkit-user-select: none; }
+#result { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--surface) 70%, transparent); border-radius: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; text-align: center; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 12px 30px -16px rgba(0,0,0,.4); }
+.card h2 { margin: 0; font-size: 1.3rem; color: var(--moss); }
+.card dl { display: grid; grid-template-columns: auto auto; gap: 2px 14px; margin: 0; font-size: .9rem; }
+.card dt { color: var(--muted); text-align: right; }
+.card dd { margin: 0; text-align: left; font-family: var(--f-mono); }
+.check { display: flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>スリザー<span>リンク</span></h1>
+    <div class="timer" id="timer">0:00</div>
+  </header>
+  <div class="meta" id="board-meta"></div>
+  <div id="board">
+    <svg id="svg" data-tool="line" aria-label="盤面"></svg>
+    <div id="zoom" hidden>
+      <div class="zbox" role="dialog" aria-label="拡大表示">
+        <div class="zhead"><button id="btn-zclose" type="button">閉じる</button></div>
+        <svg id="zsvg" aria-label="拡大した盤面"></svg>
+      </div>
+    </div>
+    <div id="result" hidden>
+      <div class="card">
+        <h2>クリア</h2>
+        <dl><dt>タイム</dt><dd id="r-time"></dd><dt>ヒント</dt><dd id="r-hint"></dd><dt>シード</dt><dd id="r-seed"></dd></dl>
+        <button id="btn-again" type="button">次の問題</button>
+      </div>
+    </div>
+  </div>
+  <div class="status" id="status" role="status"></div>
+  <div class="tools" role="group" aria-label="書き込むもの">
+    <button class="tool" data-tool="line" type="button"><span class="sw in"></span>線</button>
+    <button class="tool" data-tool="cross" type="button"><span class="sw out">×</span> ×印</button>
+  </div>
+  <div class="assists" role="group" aria-label="アシスト">
+    <span>アシスト</span>
+    <button class="assist" data-assist="off" type="button">なし</button>
+    <button class="assist" data-assist="auto" type="button">×を自動</button>
+    <button class="assist" data-assist="guide" type="button">×＋ガイド</button>
+  </div>
+  <div class="actions">
+    <button id="btn-hint" type="button">ヒント</button>
+    <button id="btn-undo" type="button">戻す</button>
+    <button id="btn-clear" type="button">消去</button>
+  </div>
+  <details open>
+    <summary>問題とシード</summary>
+    <div class="settings">
+      <div class="row">
+        <label for="size">サイズ</label>
+        <select id="size"><option value="5">5×5</option><option value="6">6×6</option><option value="7">7×7</option><option value="8">8×8</option></select>
+        <label for="diff">難しさ</label>
+        <select id="diff"><option value="E" selected>やさしい</option><option value="N">ふつう</option><option value="H">むずかしい</option></select>
+        <button id="btn-new" type="button">新しい問題</button>
+      </div>
+      <div class="row">
+        <input id="seed" type="text" aria-label="シード" spellcheck="false" autocomplete="off">
+        <button id="btn-load" type="button">読み込む</button>
+        <button id="btn-copy" type="button">シードをコピー</button>
+      </div>
+      <label class="check"><input id="live-errors" type="checkbox" checked> 矛盾（数字の超過・枝分かれ・小さな輪）を赤く表示</label>
+    </div>
+  </details>
+  <details>
+    <summary>遊び方</summary>
+    <ul class="rules">
+      <li>点と点を結んで、枝分かれも交差もしない1本の輪を作ります。</li>
+      <li>数字は、そのマスの4辺のうち線が通る本数です。</li>
+      <li>「線」モード：点から点へなぞると続けて線を引けます。</li>
+      <li>盤面を長押しすると、その周りが拡大表示されます。拡大画面ではマスの中を掴んでドラッグすると表示範囲が動き、点からなぞると線（×印モードなら×）が引けます。外側か「閉じる」で戻ります。</li>
+      <li>辺をタップすると 線 → × → 空 の順に変わります。</li>
+      <li>「×印」モード：タップやなぞりで、線にならない辺に×を付けます。</li>
+      <li>アシスト「×を自動」：0の周りや本数が埋まった数字など、明らかな×を薄く自動表示します。「×＋ガイド」はさらに、定石（隣り合う3・斜めの3・角の3）や、線を延ばす向きが1つに決まる点を黄色く光らせます。</li>
+      <li>ヒントは押すたびに、注目する場所 → 理由 → 書き込み、と段階的に進みます。</li>
+    </ul>
+  </details>
+  <details>
+    <summary>まず覚えたい定石</summary>
+    <ul class="rules">
+      <li><b>0</b>：周りの4辺はすべて×。</li>
+      <li><b>隣り合う3</b>：3と3の間の辺と、その両外側の平行な辺の計3本が線。</li>
+      <li><b>斜めの3</b>：それぞれの外側の角を作る2辺ずつが線。</li>
+      <li><b>角の3／角の1</b>：盤の角の3は角の2辺が線、角の1は角の2辺が×。</li>
+      <li><b>点のルール</b>：1つの点から出る線は0本か2本。2本出たら残りは×、行き止まりになる辺も×。</li>
+    </ul>
+  </details>
+</div>
+<script>
+// ===== deduction engine (shared by generator and hints) =====
+// Edge states: 0 unknown, 1 line, 2 cross
+function makeGeo(R, C, clues) {
+  const NH = (R + 1) * C, NE = NH + R * (C + 1), NV = (R + 1) * (C + 1);
+  const hE = (r, c) => r * C + c, vE = (r, c) => NH + r * (C + 1) + c, vid = (r, c) => r * (C + 1) + c;
+  const ea = new Int32Array(NE), eb = new Int32Array(NE);
+  for (let r = 0; r <= R; r++) for (let c = 0; c < C; c++) { ea[hE(r, c)] = vid(r, c); eb[hE(r, c)] = vid(r, c + 1); }
+  for (let r = 0; r < R; r++) for (let c = 0; c <= C; c++) { ea[vE(r, c)] = vid(r, c); eb[vE(r, c)] = vid(r + 1, c); }
+  const cellE = [], vertE = [];
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) cellE.push([hE(r, c), hE(r + 1, c), vE(r, c), vE(r, c + 1)]);
+  for (let r = 0; r <= R; r++) for (let c = 0; c <= C; c++) {
+    const a = [];
+    if (r > 0) a.push(vE(r - 1, c));
+    if (r < R) a.push(vE(r, c));
+    if (c > 0) a.push(hE(r, c - 1));
+    if (c < C) a.push(hE(r, c));
+    vertE.push(a);
+  }
+  const G = { R, C, NH, NE, NV, hE, vE, vid, ea, eb, cellE, vertE, clues };
+  G.patterns = buildPatterns(G);
+  return G;
+}
+
+function buildPatterns(G) {
+  const { R, C, hE, vE, clues } = G, out = [];
+  const k = (r, c) => (r < 0 || c < 0 || r >= R || c >= C) ? -1 : clues[r * C + c];
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+    const v = k(r, c);
+    if (v === 0) out.push({ edges: G.cellE[r * C + c], value: 2, tag: "zero", reason: "0のマスの周りには線を引けません", focus: { kind: "cell", r, c } });
+    if (v === 3 && k(r, c + 1) === 3)
+      out.push({ edges: [vE(r, c), vE(r, c + 1), vE(r, c + 2)], value: 1, tag: "33", reason: "3が横に並ぶと、縦の3本は必ず線になります（隣り合う3）", focus: { kind: "cell", r, c, r2: r, c2: c + 1 } });
+    if (v === 3 && k(r + 1, c) === 3)
+      out.push({ edges: [hE(r, c), hE(r + 1, c), hE(r + 2, c)], value: 1, tag: "33", reason: "3が縦に並ぶと、横の3本は必ず線になります（隣り合う3）", focus: { kind: "cell", r, c, r2: r + 1, c2: c } });
+    if (v === 3 && k(r + 1, c + 1) === 3)
+      out.push({ edges: [hE(r, c), vE(r, c), hE(r + 2, c + 1), vE(r + 1, c + 2)], value: 1, tag: "3x3", reason: "3が斜めに並ぶと、それぞれ外側の角の2辺が線になります（斜めの3）", focus: { kind: "cell", r, c, r2: r + 1, c2: c + 1 } });
+    if (v === 3 && k(r + 1, c - 1) === 3)
+      out.push({ edges: [hE(r, c), vE(r, c + 1), hE(r + 2, c - 1), vE(r + 1, c - 1)], value: 1, tag: "3x3", reason: "3が斜めに並ぶと、それぞれ外側の角の2辺が線になります（斜めの3）", focus: { kind: "cell", r, c, r2: r + 1, c2: c - 1 } });
+    const corner = (r === 0 || r === R - 1) && (c === 0 || c === C - 1);
+    if (corner && (v === 3 || v === 1)) {
+      const es = [r === 0 ? hE(0, c) : hE(R, c), c === 0 ? vE(r, 0) : vE(r, C)];
+      if (v === 3) out.push({ edges: es, value: 1, tag: "c3", reason: "盤の角にある3は、角の2辺が必ず線になります（角の3）", focus: { kind: "cell", r, c } });
+      else out.push({ edges: es, value: 2, tag: "c1", reason: "盤の角にある1は、角の2辺が線になりません（角の1）", focus: { kind: "cell", r, c } });
+    }
+  }
+  return out;
+}
+
+// All currently applicable steps. Returns { contra: bool, steps: [...] }
+function listSteps(G, A) {
+  const steps = [];
+  const { R, C, clues } = G;
+  for (const p of G.patterns) {
+    let todo = null;
+    for (const e of p.edges) {
+      if (A[e] === 0) (todo || (todo = [])).push(e);
+      else if (A[e] !== p.value) return { contra: true, steps };
+    }
+    if (todo) steps.push({ ...p, edges: todo });
+  }
+  for (let i = 0; i < R * C; i++) {
+    const k = clues[i]; if (k < 0) continue;
+    const es = G.cellE[i]; let L = 0, X = 0; const U = [];
+    for (const e of es) { if (A[e] === 1) L++; else if (A[e] === 2) X++; else U.push(e); }
+    if (L > k || X > 4 - k) return { contra: true, steps };
+    if (!U.length || k === 0) continue;
+    const r = Math.floor(i / C), c = i % C;
+    if (L === k) steps.push({ edges: U, value: 2, tag: "full", reason: `この${k}にはもう${k}本の線があるので、残りの辺は線になりません`, focus: { kind: "cell", r, c } });
+    else if (L + U.length === k) steps.push({ edges: U, value: 1, tag: "rest", reason: `この${k}の周りで線を引ける辺は残り${U.length}本だけなので、全部線になります`, focus: { kind: "cell", r, c } });
+  }
+  const deg = new Int8Array(G.NV);
+  for (let e = 0; e < G.NE; e++) if (A[e] === 1) { deg[G.ea[e]]++; deg[G.eb[e]]++; }
+  for (let v = 0; v < G.NV; v++) {
+    const es = G.vertE[v]; const U = [];
+    for (const e of es) if (A[e] === 0) U.push(e);
+    const D = deg[v];
+    if (D > 2 || (D === 1 && !U.length)) return { contra: true, steps };
+    if (!U.length) continue;
+    const r = Math.floor(v / (C + 1)), c = v % (C + 1);
+    if (D === 2) steps.push({ edges: U, value: 2, tag: "v2", reason: "この点からはもう線が2本出ているので、他の向きには線を引けません（枝分かれ禁止）", focus: { kind: "vertex", r, c } });
+    else if (D === 1 && U.length === 1) steps.push({ edges: U, value: 1, tag: "v1", reason: "線は途中で途切れられません。この点から延ばせる向きはここしかありません", focus: { kind: "vertex", r, c } });
+    else if (D === 0 && U.length === 1) steps.push({ edges: U, value: 2, tag: "v0", reason: "この点で線が通れる向きは1つしかないので、ここに線を引くと行き止まりになります", focus: { kind: "vertex", r, c } });
+  }
+  // loop rule
+  const parent = new Int32Array(G.NV); for (let v = 0; v < G.NV; v++) parent[v] = v;
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  let lines = 0;
+  for (let e = 0; e < G.NE; e++) if (A[e] === 1) { lines++; parent[find(G.ea[e])] = find(G.eb[e]); }
+  if (lines) {
+    const size = new Int32Array(G.NV), open = new Uint8Array(G.NV);
+    for (let e = 0; e < G.NE; e++) if (A[e] === 1) size[find(G.ea[e])]++;
+    for (let v = 0; v < G.NV; v++) if (deg[v] === 1) open[find(v)] = 1;
+    for (let v = 0; v < G.NV; v++) if (find(v) === v && size[v] && !open[v] && size[v] < lines) return { contra: true, steps };
+    for (let e = 0; e < G.NE; e++) {
+      if (A[e] !== 0) continue;
+      const a = G.ea[e], b = G.eb[e];
+      if (deg[a] === 1 && deg[b] === 1 && find(a) === find(b) && size[find(a)] < lines)
+        steps.push({ edges: [e], value: 2, tag: "loop", reason: "ここをつなぐと小さな輪が閉じてしまい、他の線とつながれなくなります", focus: { kind: "edge", e } });
+    }
+  }
+  return { contra: false, steps };
+}
+
+// apply all steps until fixpoint; returns false on contradiction
+function sweep(G, A, onlyValue) {
+  for (let guard = 0; guard < 1000; guard++) {
+    const { contra, steps } = listSteps(G, A);
+    if (contra) return false;
+    let changed = false;
+    for (const s of steps) {
+      if (onlyValue && s.value !== onlyValue) continue;
+      for (const e of s.edges) {
+        if (A[e] === 0) { A[e] = s.value; changed = true; }
+        else if (A[e] !== s.value) return false;
+      }
+    }
+    if (!changed) return true;
+  }
+  return true;
+}
+function linesMatch(A, SOL) { for (let e = 0; e < SOL.length; e++) if (SOL[e] && A[e] !== 1) return false; return true; }
+
+// level 0: rules only, level 1: rules + single-edge trial
+function solveLevel(G, SOL, level) {
+  const A = new Uint8Array(G.NE);
+  if (!sweep(G, A)) return false;
+  while (!linesMatch(A, SOL)) {
+    if (level < 1) return false;
+    let found = false;
+    for (let e = 0; e < G.NE; e++) {
+      if (A[e]) continue;
+      for (const v of [1, 2]) {
+        const B = Uint8Array.from(A); B[e] = v;
+        if (!sweep(G, B)) { A[e] = 3 - v; found = true; if (!sweep(G, A)) return false; break; }
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+function solutionEdges(G, sol) {
+  const { R, C } = G, SOL = new Uint8Array(G.NE);
+  const inn = (r, c) => (r < 0 || c < 0 || r >= R || c >= C) ? 0 : sol[r * C + c];
+  for (let r = 0; r <= R; r++) for (let c = 0; c < C; c++) SOL[G.hE(r, c)] = inn(r - 1, c) !== inn(r, c) ? 1 : 0;
+  for (let r = 0; r < R; r++) for (let c = 0; c <= C; c++) SOL[G.vE(r, c)] = inn(r, c - 1) !== inn(r, c) ? 1 : 0;
+  return SOL;
+}
+// ===== seeded PRNG =====
+function hashSeed(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return (h ^= h >>> 16) >>> 0;
+  };
+}
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function shuffle(arr, rnd) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// ===== helpers on a full grid (array of 0/1, size R*C) =====
+function cellAt(g, R, C, r, c) {
+  if (r < 0 || c < 0 || r >= R || c >= C) return 0;
+  return g[r * C + c];
+}
+function clueOf(g, R, C, r, c) {
+  const v = g[r * C + c];
+  let n = 0;
+  if (cellAt(g, R, C, r - 1, c) !== v) n++;
+  if (cellAt(g, R, C, r + 1, c) !== v) n++;
+  if (cellAt(g, R, C, r, c - 1) !== v) n++;
+  if (cellAt(g, R, C, r, c + 1) !== v) n++;
+  return n;
+}
+function hasChecker(g, R, C, r, c) {
+  // 2x2 block with top-left (r,c)
+  const a = g[r * C + c], b = g[r * C + c + 1], d = g[(r + 1) * C + c], e = g[(r + 1) * C + c + 1];
+  return a === e && b === d && a !== b;
+}
+function outsideConnected(g, R, C) {
+  // every out cell must reach the board edge through out cells
+  const seen = new Uint8Array(R * C);
+  const q = [];
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+    if ((r === 0 || c === 0 || r === R - 1 || c === C - 1) && !g[r * C + c]) {
+      seen[r * C + c] = 1; q.push(r * C + c);
+    }
+  }
+  while (q.length) {
+    const i = q.pop(), r = (i / C) | 0, c = i % C;
+    for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nc < 0 || nr >= R || nc >= C) continue;
+      const j = nr * C + nc;
+      if (!seen[j] && !g[j]) { seen[j] = 1; q.push(j); }
+    }
+  }
+  for (let i = 0; i < R * C; i++) if (!g[i] && !seen[i]) return false;
+  return true;
+}
+
+// ===== solver: count solutions (up to 2), row-by-row DFS =====
+function countSolutions(R, C, clues, nodeCap) {
+  const full = (1 << C) - 1;
+  const rows = new Array(R).fill(0);
+  let count = 0, nodes = 0, aborted = false;
+  const g = new Uint8Array(R * C);
+  const bit = (row, c) => (row >> c) & 1;
+
+  function clueOkRow(r, lastRow) {
+    // check clues in row r, given rows r-1, r, r+1 (r+1 = 0 if lastRow)
+    const cur = rows[r], up = r > 0 ? rows[r - 1] : 0, dn = lastRow ? 0 : rows[r + 1];
+    for (let c = 0; c < C; c++) {
+      const k = clues[r * C + c];
+      if (k < 0) continue;
+      const v = bit(cur, c);
+      let n = 0;
+      if (bit(up, c) !== v) n++;
+      if (bit(dn, c) !== v) n++;
+      if ((c > 0 ? bit(cur, c - 1) : 0) !== v) n++;
+      if ((c < C - 1 ? bit(cur, c + 1) : 0) !== v) n++;
+      if (n !== k) return false;
+    }
+    return true;
+  }
+  function checkerOk(r) {
+    if (r === 0) return true;
+    const a = rows[r - 1], b = rows[r];
+    for (let c = 0; c < C - 1; c++) {
+      const p = bit(a, c), q = bit(a, c + 1), s = bit(b, c), t = bit(b, c + 1);
+      if (p === t && q === s && p !== q) return false;
+    }
+    return true;
+  }
+  // connectivity pruning on rows 0..r
+  // returns: 0 = invalid, 1 = ok, 2 = ok but in-region closed (rest must be empty)
+  function connOk(r, final) {
+    const n = (r + 1) * C;
+    for (let i = 0; i < n; i++) g[i] = bit(rows[(i / C) | 0], i % C);
+    const comp = new Int32Array(n).fill(-1);
+    let inComps = 0, closedIn = false;
+    const stack = [];
+    for (let s = 0; s < n; s++) {
+      if (comp[s] >= 0) continue;
+      const v = g[s];
+      comp[s] = s; stack.push(s);
+      let touchLast = false, touchBorder = false, size = 0;
+      while (stack.length) {
+        const i = stack.pop(); size++;
+        const rr = (i / C) | 0, cc = i % C;
+        if (rr === r) touchLast = true;
+        if (rr === 0 || cc === 0 || cc === C - 1 || (final && rr === r)) touchBorder = true;
+        if (rr > 0) { const j = i - C; if (comp[j] < 0 && g[j] === v) { comp[j] = s; stack.push(j); } }
+        if (rr < r) { const j = i + C; if (comp[j] < 0 && g[j] === v) { comp[j] = s; stack.push(j); } }
+        if (cc > 0) { const j = i - 1; if (comp[j] < 0 && g[j] === v) { comp[j] = s; stack.push(j); } }
+        if (cc < C - 1) { const j = i + 1; if (comp[j] < 0 && g[j] === v) { comp[j] = s; stack.push(j); } }
+      }
+      if (v) {
+        inComps++;
+        if (!touchLast || final) closedIn = true;
+      } else {
+        if (!touchBorder && (!touchLast || final)) return 0; // enclosed hole
+      }
+    }
+    if (closedIn && inComps > 1) return 0;
+    if (final && inComps !== 1) return 0;
+    return closedIn ? 2 : 1;
+  }
+
+  function dfs(r, mustEmpty) {
+    if (aborted || count >= 2) return;
+    const last = r === R - 1;
+    const opts = mustEmpty ? [0] : null;
+    const lim = mustEmpty ? 1 : full + 1;
+    for (let k = 0; k < lim; k++) {
+      const row = opts ? 0 : k;
+      if (++nodes > nodeCap) { aborted = true; return; }
+      rows[r] = row;
+      if (!checkerOk(r)) continue;
+      if (r > 0 && !clueOkRow(r - 1, false)) continue;
+      if (last && !clueOkRow(r, true)) continue;
+      const cs = connOk(r, last);
+      if (cs === 0) continue;
+      if (last) { count++; if (count >= 2) return; continue; }
+      dfs(r + 1, cs === 2);
+      if (aborted || count >= 2) return;
+    }
+  }
+  dfs(0, false);
+  return aborted ? -1 : count;
+}
+
+// ===== generator =====
+// level 0: solvable with rules/patterns only, 1: plus one-edge trial, -1: any unique puzzle
+const DIFF = { E: { keep: 0.3, level: 0, label: "やさしい" }, N: { keep: 0.2, level: 1, label: "ふつう" }, H: { keep: 0, level: -1, label: "むずかしい" } };
+
+function generate(seedStr) {
+  const m = /^(\d+)-([ENH])-(.+)$/.exec(seedStr);
+  if (!m) return null;
+  const N = Math.max(4, Math.min(8, +m[1])), diff = m[2];
+  const R = N, C = N;
+  const rnd = mulberry32(hashSeed(seedStr)());
+  for (let attempt = 0; attempt < 50; attempt++) {
+    // grow region
+    const g = new Uint8Array(R * C);
+    const target = Math.floor(R * C * (0.42 + rnd() * 0.16));
+    const sr = 1 + Math.floor(rnd() * (R - 2)), sc = 1 + Math.floor(rnd() * (C - 2));
+    g[sr * C + sc] = 1;
+    let size = 1, stuck = 0;
+    while (size < target && stuck < 400) {
+      // collect frontier
+      const front = [];
+      for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+        if (g[r * C + c]) continue;
+        let nIn = 0;
+        if (cellAt(g, R, C, r - 1, c)) nIn++;
+        if (cellAt(g, R, C, r + 1, c)) nIn++;
+        if (cellAt(g, R, C, r, c - 1)) nIn++;
+        if (cellAt(g, R, C, r, c + 1)) nIn++;
+        if (nIn > 0) for (let w = 0; w < (nIn === 1 ? 4 : nIn === 2 ? 2 : 1); w++) front.push(r * C + c);
+      }
+      if (!front.length) break;
+      const pick = front[Math.floor(rnd() * front.length)];
+      g[pick] = 1;
+      const pr = (pick / C) | 0, pc = pick % C;
+      let bad = false;
+      for (let r = pr - 1; r <= pr && !bad; r++) for (let c = pc - 1; c <= pc; c++) {
+        if (r < 0 || c < 0 || r >= R - 1 || c >= C - 1) continue;
+        if (hasChecker(g, R, C, r, c)) { bad = true; break; }
+      }
+      if (!bad && !outsideConnected(g, R, C)) bad = true;
+      if (bad) { g[pick] = 0; stuck++; } else size++;
+    }
+    if (size < target * 0.8) continue;
+    const full = new Int8Array(R * C);
+    for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) full[r * C + c] = clueOf(g, R, C, r, c);
+    if (countSolutions(R, C, full, 2e6) !== 1) continue;
+    const clues = Int8Array.from(full);
+    // removal order: zeros far from the loop first (they tell nothing), then the rest at random
+    const nearLoop = (i) => {
+      const r = (i / C) | 0, c = i % C;
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (cellAt(g, R, C, r + dr, c + dc)) return true;
+      return false;
+    };
+    const rest = shuffle([...Array(R * C).keys()], rnd);
+    const order = [...rest.filter((i) => full[i] === 0 && !nearLoop(i)), ...rest.filter((i) => !(full[i] === 0 && !nearLoop(i)))];
+    const keepMin = Math.round(R * C * DIFF[diff].keep);
+    const level = DIFF[diff].level;
+    const sol = Array.from(g);
+    const ok = (cl) => {
+      if (level < 0) return countSolutions(R, C, cl, 300000) === 1;
+      const G = makeGeo(R, C, cl);
+      return solveLevel(G, solutionEdges(G, sol), level);
+    };
+    if (!ok(clues)) continue;
+    let remaining = R * C;
+    for (const i of order) {
+      if (remaining <= keepMin) break;
+      const saved = clues[i];
+      clues[i] = -1;
+      if (!ok(clues)) clues[i] = saved; else remaining--;
+    }
+    return { R, C, clues: Array.from(clues), solution: Array.from(g), diff, seed: seedStr };
+  }
+  return null;
+}
+
+if (typeof module !== "undefined") module.exports = { generate, countSolutions };
+// ===== edge-based slitherlink UI =====
+const $ = (id) => document.getElementById(id);
+const CS = 46, PAD = 14;
+let P = null, G = null, R = 0, C = 0, NH = 0, NE = 0;
+let E = null;          // edge states: 0 unknown, 1 line, 2 cross
+let SOL = null;        // solution edges (1 = line)
+let undo = [];
+let startTime = 0, elapsed = 0, timerId = null, solved = false;
+let hintsUsed = 0, hint = null, hintStage = 0;
+
+// ---- geometry ----
+const hE = (r, c) => r * C + c;                 // horizontal edge: (r,c)-(r,c+1)
+const vE = (r, c) => NH + r * (C + 1) + c;      // vertical edge: (r,c)-(r+1,c)
+const vid = (r, c) => r * (C + 1) + c;
+function edgeEnds(e) {
+  if (e < NH) { const r = Math.floor(e / C), c = e % C; return [[r, c], [r, c + 1]]; }
+  const k = e - NH, r = Math.floor(k / (C + 1)), c = k % (C + 1); return [[r, c], [r + 1, c]];
+}
+function cellEdges(r, c) { return [hE(r, c), hE(r + 1, c), vE(r, c), vE(r, c + 1)]; }
+function vertEdges(r, c) {
+  const a = [];
+  if (r > 0) a.push(vE(r - 1, c));
+  if (r < R) a.push(vE(r, c));
+  if (c > 0) a.push(hE(r, c - 1));
+  if (c < C) a.push(hE(r, c));
+  return a;
+}
+function edgeBetween(a, b) {
+  const [r1, c1] = a, [r2, c2] = b;
+  if (r1 === r2 && Math.abs(c1 - c2) === 1) return hE(r1, Math.min(c1, c2));
+  if (c1 === c2 && Math.abs(r1 - r2) === 1) return vE(Math.min(r1, r2), c1);
+  return -1;
+}
+function clue(r, c) { return P.clues[r * C + c]; }
+
+// ---- puzzle loading ----
+function rndSeedWord() {
+  const a = "abcdefghjkmnpqrstuvwxyz23456789";
+  let s = ""; for (let i = 0; i < 6; i++) s += a[Math.floor(Math.random() * a.length)];
+  return s;
+}
+function loadSeed(seed) {
+  setStatus("問題を作っています…");
+  $("board").classList.add("busy");
+  setTimeout(() => {
+    const p = generate(seed);
+    $("board").classList.remove("busy");
+    if (!p) { setStatus("シードの形式が違います（例: 6-E-abc123）"); return; }
+    P = p; R = p.R; C = p.C; NH = (R + 1) * C; NE = NH + R * (C + 1);
+    const inn = (r, c) => (r < 0 || c < 0 || r >= R || c >= C) ? 0 : p.solution[r * C + c];
+    SOL = new Uint8Array(NE);
+    for (let r = 0; r <= R; r++) for (let c = 0; c < C; c++) SOL[hE(r, c)] = inn(r - 1, c) !== inn(r, c) ? 1 : 0;
+    for (let r = 0; r < R; r++) for (let c = 0; c <= C; c++) SOL[vE(r, c)] = inn(r, c - 1) !== inn(r, c) ? 1 : 0;
+    closeZoom();
+    G = makeGeo(R, C, p.clues);
+    E = new Uint8Array(NE); undo = []; solved = false;
+    hintsUsed = 0; hint = null; hintStage = 0;
+    $("size").value = String(R); $("diff").value = p.diff; $("seed").value = seed;
+    try { history.replaceState(null, "", "#" + seed); } catch (e) {}
+    $("result").hidden = true;
+    startTime = Date.now(); elapsed = 0;
+    clearInterval(timerId); timerId = setInterval(tick, 500); tick();
+    setStatus("辺をタップするか点から点へなぞって線を引き、1本の輪を作ってください。長押しで拡大できます");
+    render();
+  }, 30);
+}
+function newPuzzle() { loadSeed(`${$("size").value}-${$("diff").value}-${rndSeedWord()}`); }
+function tick() {
+  if (!solved) elapsed = Date.now() - startTime;
+  $("timer").textContent = fmt(elapsed);
+}
+function fmt(ms) { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+function setStatus(t) { $("status").textContent = t; }
+
+// ---- deduction engine ----
+// One step = { edges:[...], value:1|2, reason, focus:{kind:'cell'|'vertex'|'edge', r, c} }
+function components(A) {
+  const parent = new Int32Array((R + 1) * (C + 1)).map((_, i) => i);
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  let lineCount = 0;
+  for (let e = 0; e < NE; e++) if (A[e] === 1) {
+    lineCount++;
+    const [a, b] = edgeEnds(e);
+    parent[find(vid(a[0], a[1]))] = find(vid(b[0], b[1]));
+  }
+  return { find, lineCount };
+}
+function edgesOf(A, list, val) { return list.filter((e) => A[e] === val); }
+
+function hasLoopContradiction(A) {
+  // a closed loop that doesn't contain all lines
+  const { find, lineCount } = components(A);
+  const deg = new Int8Array((R + 1) * (C + 1));
+  for (let e = 0; e < NE; e++) if (A[e] === 1) { const [a, b] = edgeEnds(e); deg[vid(a[0], a[1])]++; deg[vid(b[0], b[1])]++; }
+  const compOpen = new Map(), compSize = new Map();
+  for (let e = 0; e < NE; e++) if (A[e] === 1) { const [a] = edgeEnds(e); const k = find(vid(a[0], a[1])); compSize.set(k, (compSize.get(k) || 0) + 1); }
+  for (let v = 0; v < deg.length; v++) if (deg[v] === 1) compOpen.set(find(v), true);
+  for (const [k, sz] of compSize) if (!compOpen.get(k) && sz < lineCount) return k;
+  return null;
+}
+
+function focusEdges(f) {
+  if (!f) return [];
+  if (f.kind === "cell") { const a = [...cellEdges(f.r, f.c)]; if (f.r2 !== undefined) a.push(...cellEdges(f.r2, f.c2)); return a; }
+  if (f.kind === "vertex") return vertEdges(f.r, f.c);
+  return [f.e];
+}
+// Obvious crosses (0の周り、埋まった数字、2本出た点など) are treated as already known,
+// so hints always point at a step that actually draws a line.
+function findHint() {
+  for (let e = 0; e < NE; e++) {
+    if ((E[e] === 1 && !SOL[e]) || (E[e] === 2 && SOL[e])) return { kind: "wrong", edges: [e], value: SOL[e] ? 1 : 2 };
+  }
+  const K = Uint8Array.from(E);
+  sweep(G, K, 2);
+  const withExtra = (h) => {
+    const extra = focusEdges(h.focus).filter((e) => K[e] === 2 && E[e] !== 2);
+    return { ...h, extra };
+  };
+  const { steps } = listSteps(G, K);
+  const line = steps.find((s) => s.value === 1);
+  if (line) return withExtra({ kind: "rule", ...line });
+  // one-edge trial on the known state
+  let crossTry = null;
+  for (let e = 0; e < NE; e++) {
+    if (K[e]) continue;
+    const B = Uint8Array.from(K); B[e] = 2;
+    if (!sweep(G, B)) return withExtra({ kind: "try", edges: [e], value: 1, focus: { kind: "edge", e },
+      reason: "ここを線にしないと仮定して進めると、どこかで矛盾が出ます。なのでここは線になります" });
+    if (!crossTry) {
+      const B2 = Uint8Array.from(K); B2[e] = 1;
+      if (!sweep(G, B2)) crossTry = { kind: "try", edges: [e], value: 2, focus: { kind: "edge", e },
+        reason: "ここに線を引いたと仮定して進めると、どこかで矛盾が出ます。なのでここは×です" };
+    }
+  }
+  if (crossTry) return withExtra(crossTry);
+  for (let e = 0; e < NE; e++) if (!E[e] && SOL[e]) return { kind: "reveal", edges: [e], value: 1, extra: [] };
+  return null;
+}
+function onHint() {
+  if (solved || !P) return;
+  if (!hint) { hint = findHint(); hintStage = 0; }
+  if (!hint) { setStatus("今の盤面ではヒントが見つかりません"); return; }
+  hintStage++;
+  if (hintStage === 1) hintsUsed++;
+  const what = hint.value === 1 ? "線になります" : "線になりません（×）";
+  if (hint.kind === "wrong") {
+    if (hintStage === 1) setStatus("どこかに間違いがあります。光っているあたりを見直してください");
+    else if (hintStage === 2) setStatus(`光っている辺が違います。ここは${what}`);
+    else return applyHint();
+  } else if (hint.kind === "rule") {
+    if (hintStage === 1) setStatus(hint.focus.kind === "vertex" ? "光っている点に注目すると、決まる辺があります" : hint.focus.kind === "edge" ? "光っているあたりの線のつながり方に注目してください" : "光っている数字に注目すると、決まる辺があります");
+    else if (hintStage === 2) setStatus(hint.reason + (hint.extra && hint.extra.length ? "（×になる辺も薄く示しています。もう一度押すと両方書き込みます）" : ""));
+    else return applyHint();
+  } else if (hint.kind === "try") {
+    if (hintStage === 1) setStatus("定石だけでは進めない場面です。光っている辺を「仮に」決めてみてください");
+    else if (hintStage === 2) setStatus(hint.reason + (hint.extra && hint.extra.length ? "（×になる辺も薄く示しています。もう一度押すと両方書き込みます）" : ""));
+    else return applyHint();
+  } else {
+    if (hintStage === 1) setStatus("手筋で決まる辺が見つかりません。もう一度押すと1本答えを出します");
+    else return applyHint();
+  }
+  render();
+}
+function applyHint() {
+  pushUndo();
+  for (const e of hint.edges) E[e] = hint.value;
+  for (const e of hint.extra || []) if (!E[e]) E[e] = 2;
+  hint = null; hintStage = 0;
+  setStatus("ヒントの辺を書き込みました");
+  render(); checkSolved();
+}
+
+// ---- input ----
+function svgPoint(e) {
+  const svg = (e.currentTarget && e.currentTarget.createSVGPoint) ? e.currentTarget : $("svg"), pt = svg.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: (p.x - PAD) / CS, y: (p.y - PAD) / CS }; // in cell units
+}
+function nearestEdge(p, maxD) {
+  let best = -1, bd = maxD;
+  const rr = Math.round(p.y), cr = Math.round(p.x), rf = Math.floor(p.y), cf = Math.floor(p.x);
+  const cands = [];
+  for (const r of [rr]) for (const c of [cf]) if (r >= 0 && r <= R && c >= 0 && c < C) cands.push([hE(r, c), Math.abs(p.y - r) + Math.max(0, Math.abs(p.x - (c + 0.5)) - 0.5)]);
+  for (const r of [rf]) for (const c of [cr]) if (r >= 0 && r < R && c >= 0 && c <= C) cands.push([vE(r, c), Math.abs(p.x - c) + Math.max(0, Math.abs(p.y - (r + 0.5)) - 0.5)]);
+  for (const [e, d] of cands) if (d < bd) { bd = d; best = e; }
+  return best;
+}
+function nearestVertex(p, maxD) {
+  const r = Math.round(p.y), c = Math.round(p.x);
+  if (r < 0 || c < 0 || r > R || c > C) return null;
+  return Math.hypot(p.x - c, p.y - r) <= maxD ? [r, c] : null;
+}
+let stroke = null;
+function tool() { return $("svg").dataset.tool; }
+function onDown(ev) {
+  if (!P || solved) return;
+  ev.preventDefault();
+  ev.currentTarget.setPointerCapture(ev.pointerId);
+  const p = svgPoint(ev);
+  stroke = { start: p, moved: false, lastV: nearestVertex(p, 0.42), val: null, changed: false, pushed: false, touched: new Set() };
+  if (ev.currentTarget.id === "zsvg") {
+    stroke.inZoom = true;
+    // grab anywhere except on a dot to move the magnified area
+    if (!nearestVertex(p, 0.3)) stroke.pan = { cx: ev.clientX, cy: ev.clientY, zx: zoom.x, zy: zoom.y, k: zoom.w / ev.currentTarget.clientWidth };
+  }
+  if (ev.currentTarget.id === "svg") {
+    const s0 = stroke;
+    s0.lp = setTimeout(() => {
+      if (stroke === s0 && !s0.moved) {
+        stroke = null;
+        try { navigator.vibrate && navigator.vibrate(12); } catch (e) {}
+        openZoom(p);
+      }
+    }, 420);
+  }
+}
+function setEdge(e, desired) {
+  if (!stroke.pushed) { pushUndo(); stroke.pushed = true; }
+  if (stroke.val === null) stroke.val = E[e] === desired ? 0 : desired;
+  if (E[e] !== stroke.val) { E[e] = stroke.val; stroke.changed = true; }
+  stroke.touched.add(e);
+}
+function onMove(ev) {
+  if (!stroke) return;
+  const p = svgPoint(ev);
+  if (Math.hypot(p.x - stroke.start.x, p.y - stroke.start.y) > 0.25) { stroke.moved = true; clearTimeout(stroke.lp); }
+  if (!stroke.moved) return;
+  if (stroke.pan) {
+    const pn = stroke.pan;
+    moveZoom(pn.zx - (ev.clientX - pn.cx) * pn.k, pn.zy - (ev.clientY - pn.cy) * pn.k);
+    return;
+  }
+  if (tool() === "line" || stroke.inZoom) {
+    const v = nearestVertex(p, 0.36);
+    if (!v) return;
+    if (!stroke.lastV) { stroke.lastV = v; return; }
+    if (v[0] === stroke.lastV[0] && v[1] === stroke.lastV[1]) return;
+    const e = edgeBetween(stroke.lastV, v);
+    stroke.lastV = v;
+    if (e >= 0 && !stroke.touched.has(e)) { setEdge(e, tool() === "line" ? 1 : 2); afterEdit(); }
+  } else {
+    const e = nearestEdge(p, 0.22);
+    if (e >= 0 && !stroke.touched.has(e)) { setEdge(e, 2); afterEdit(); }
+  }
+}
+function onUp(ev) {
+  if (!stroke) return;
+  clearTimeout(stroke.lp);
+  if (!stroke.moved) {
+    const e = nearestEdge(stroke.start, 0.5);
+    if (e >= 0) {
+      pushUndo();
+      if (tool() === "line") E[e] = E[e] === 0 ? 1 : E[e] === 1 ? 2 : 0;
+      else E[e] = E[e] === 2 ? 0 : 2;
+      afterEdit();
+    }
+  }
+  stroke = null;
+}
+// ---- zoom ----
+let zoom = null; // {x, y, w, h} in svg units
+function openZoom(p) {
+  const W = PAD * 2 + CS * C, H = PAD * 2 + CS * R;
+  const size = Math.min(Math.max(R, C), 3.4) * CS + PAD;
+  const cx = PAD + p.x * CS, cy = PAD + p.y * CS;
+  const x = Math.min(Math.max(cx - size / 2, 0), Math.max(0, W - size));
+  const y = Math.min(Math.max(cy - size / 2, 0), Math.max(0, H - size));
+  zoom = { x, y, w: Math.min(size, W), h: Math.min(size, H) };
+  $("zoom").hidden = false;
+  render();
+  setStatus("拡大中：マスの中を掴んでドラッグすると移動、点からなぞると線、辺のタップで書き込みです。外側か「閉じる」で戻ります");
+}
+function moveZoom(x, y) {
+  const W = PAD * 2 + CS * C, H = PAD * 2 + CS * R;
+  zoom.x = Math.min(Math.max(x, 0), Math.max(0, W - zoom.w));
+  zoom.y = Math.min(Math.max(y, 0), Math.max(0, H - zoom.h));
+  $("zsvg").setAttribute("viewBox", `${zoom.x} ${zoom.y} ${zoom.w} ${zoom.h}`);
+}
+function closeZoom() { zoom = null; $("zoom").hidden = true; stroke = null; }
+// ---- assist ----
+let assist = "guide";
+const GUIDE_TAGS = new Set(["33", "3x3", "c3", "v1"]);
+function derive() {
+  const K = Uint8Array.from(E);
+  if (assist === "off") return { K, autoX: [], guides: [] };
+  sweep(G, K, 2);
+  const autoX = [];
+  for (let e = 0; e < NE; e++) if (K[e] === 2 && E[e] === 0) autoX.push(e);
+  let guides = [];
+  if (assist === "guide") {
+    const { contra, steps } = listSteps(G, K);
+    if (!contra) guides = steps.filter((st) => st.value === 1 && GUIDE_TAGS.has(st.tag)).map((st) => st.focus);
+  }
+  return { K, autoX, guides };
+}
+function setAssist(a) {
+  assist = a;
+  for (const b of document.querySelectorAll(".assist")) b.setAttribute("aria-pressed", b.dataset.assist === a ? "true" : "false");
+  try { localStorage.setItem("slither-assist", a); } catch (e) {}
+  if (P) render();
+}
+function pushUndo() { undo.push(Uint8Array.from(E)); if (undo.length > 400) undo.shift(); }
+function afterEdit() { hint = null; hintStage = 0; render(); checkSolved(); }
+function onUndo() { if (!undo.length || solved) return; E = undo.pop(); hint = null; render(); }
+function onClear() { if (solved || !P) return; pushUndo(); E = new Uint8Array(NE); hint = null; render(); setStatus("盤面を消しました（戻すで復元できます）"); }
+
+function checkSolved() {
+  for (let e = 0; e < NE; e++) if ((E[e] === 1) !== (SOL[e] === 1)) return;
+  closeZoom();
+  solved = true; elapsed = Date.now() - startTime; tick(); clearInterval(timerId);
+  render();
+  $("board").classList.add("solved");
+  setTimeout(() => $("board").classList.remove("solved"), 1600);
+  $("r-time").textContent = fmt(elapsed);
+  $("r-hint").textContent = String(hintsUsed);
+  $("r-seed").textContent = P.seed;
+  $("result").hidden = false;
+  setStatus("輪が閉じました");
+}
+
+// ---- render ----
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const X = (c) => PAD + c * CS, Y = (r) => PAD + r * CS;
+function render() {
+  const svg = $("svg");
+  svg.setAttribute("viewBox", `0 0 ${PAD * 2 + CS * C} ${PAD * 2 + CS * R}`);
+  svg.innerHTML = "";
+  const live = $("live-errors").checked;
+  const D = solved ? { K: E, autoX: [], guides: [] } : derive();
+  const gBg = el("g", {}, svg), gHint = el("g", {}, svg), gTxt = el("g", {}, svg), gEdge = el("g", {}, svg), gDot = el("g", {}, svg), gErr = el("g", {}, svg);
+  el("rect", { x: PAD, y: PAD, width: CS * C, height: CS * R, class: "bg" }, gBg);
+  if (solved) {
+    for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) if (P.solution[r * C + c]) el("rect", { x: X(c), y: Y(r), width: CS, height: CS, class: "fill-in" }, gBg);
+  }
+  // clues
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+    const k = clue(r, c); if (k < 0) continue;
+    const es = cellEdges(r, c), L = edgesOf(E, es, 1).length, Xn = edgesOf(E, es, 2).length;
+    const Xk = edgesOf(D.K, es, 2).length;
+    const bad = L > k || Xn > 4 - k, done = L === k && (k > 0 || Xk === 4);
+    const t = el("text", { x: X(c) + CS / 2, y: Y(r) + CS / 2 + 1, class: live && bad ? "n bad" : done ? "n done" : "n" }, gTxt);
+    t.textContent = k;
+  }
+  // loop error
+  const badComp = live ? hasLoopContradiction(E) : null;
+  const comp = badComp !== null ? components(E) : null;
+  for (let e = 0; e < NE; e++) {
+    const [[r1, c1], [r2, c2]] = edgeEnds(e);
+    const x1 = X(c1), y1 = Y(r1), x2 = X(c2), y2 = Y(r2);
+    if (E[e] === 1) {
+      const isBad = comp && comp.find(vid(r1, c1)) === badComp;
+      el("line", { x1, y1, x2, y2, class: isBad ? "ln bad" : "ln" }, gEdge);
+    } else if (E[e] === 2) {
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, s = 4.5;
+      el("path", { d: `M${mx - s} ${my - s}L${mx + s} ${my + s}M${mx + s} ${my - s}L${mx - s} ${my + s}`, class: "cross" }, gEdge);
+    }
+  }
+  for (const e of D.autoX) {
+    const [[r1, c1], [r2, c2]] = edgeEnds(e);
+    const mx = (X(c1) + X(c2)) / 2, my = (Y(r1) + Y(r2)) / 2, s = 3.5;
+    el("path", { d: `M${mx - s} ${my - s}L${mx + s} ${my + s}M${mx + s} ${my - s}L${mx - s} ${my + s}`, class: "cross auto" }, gEdge);
+  }
+  for (const f of D.guides) {
+    if (f.kind === "vertex") el("circle", { cx: X(f.c), cy: Y(f.r), r: 10, class: "g-focus" }, gHint);
+    else if (f.kind === "cell") {
+      el("rect", { x: X(f.c) + 5, y: Y(f.r) + 5, width: CS - 10, height: CS - 10, rx: 9, class: "g-focus" }, gHint);
+      if (f.r2 !== undefined) el("rect", { x: X(f.c2) + 5, y: Y(f.r2) + 5, width: CS - 10, height: CS - 10, rx: 9, class: "g-focus" }, gHint);
+    }
+  }
+  for (let r = 0; r <= R; r++) for (let c = 0; c <= C; c++) {
+    let cls = "dot";
+    if (live) {
+      const es = vertEdges(r, c), D = edgesOf(E, es, 1).length, U = edgesOf(E, es, 0).length;
+      if (D > 2 || (D === 1 && U === 0)) cls = "dot bad";
+    }
+    el("circle", { cx: X(c), cy: Y(r), r: cls === "dot" ? 2.6 : 5, class: cls }, gDot);
+  }
+  // hint
+  if (hint && hintStage > 0) {
+    const f = hint.focus;
+    if (hint.kind === "wrong" && hintStage === 1) {
+      const [[r1, c1]] = edgeEnds(hint.edges[0]);
+      el("circle", { cx: X(c1), cy: Y(r1), r: CS * 1.3, class: "h-area" }, gHint);
+    } else if (f && (hint.kind === "rule" || hint.kind === "try")) {
+      if (f.kind === "cell") {
+        el("rect", { x: X(f.c) + 4, y: Y(f.r) + 4, width: CS - 8, height: CS - 8, rx: 9, class: "h-focus" }, gHint);
+        if (f.r2 !== undefined) el("rect", { x: X(f.c2) + 4, y: Y(f.r2) + 4, width: CS - 8, height: CS - 8, rx: 9, class: "h-focus" }, gHint);
+      } else if (f.kind === "vertex") {
+        el("circle", { cx: X(f.c), cy: Y(f.r), r: 12, class: "h-focus" }, gErr);
+      }
+    }
+    const showEdges = hintStage >= 2 || hint.kind === "try" || (f && f.kind === "edge");
+    if (hintStage >= 2 && hint.extra) for (const e of hint.extra) {
+      const [[r1, c1], [r2, c2]] = edgeEnds(e);
+      const mx = (X(c1) + X(c2)) / 2, my = (Y(r1) + Y(r2)) / 2, s = 5;
+      el("path", { d: `M${mx - s} ${my - s}L${mx + s} ${my + s}M${mx + s} ${my - s}L${mx - s} ${my + s}`, class: "h-cross" }, gErr);
+    }
+    if (showEdges && hint.kind !== "reveal" && !(hint.kind === "wrong" && hintStage === 1)) {
+      for (const e of hint.edges) {
+        const [[r1, c1], [r2, c2]] = edgeEnds(e);
+        el("line", { x1: X(c1), y1: Y(r1), x2: X(c2), y2: Y(r2), class: hint.kind === "wrong" ? "h-edge wrong" : "h-edge" }, gErr);
+      }
+    }
+  }
+  if (zoom) {
+    const z = $("zsvg");
+    z.setAttribute("viewBox", `${zoom.x} ${zoom.y} ${zoom.w} ${zoom.h}`);
+    z.innerHTML = svg.innerHTML;
+  }
+  $("board-meta").textContent = `${R}×${C}・${DIFF[P.diff].label}・ヒント ${hintsUsed}回`;
+}
+
+function setTool(t) {
+  $("svg").dataset.tool = t;
+  for (const b of document.querySelectorAll(".tool")) b.setAttribute("aria-pressed", b.dataset.tool === t ? "true" : "false");
+}
+function boot() {
+  const svg = $("svg");
+  svg.addEventListener("pointerdown", onDown);
+  svg.addEventListener("pointermove", onMove);
+  svg.addEventListener("pointerup", onUp);
+  svg.addEventListener("pointercancel", () => { if (stroke) clearTimeout(stroke.lp); stroke = null; });
+  svg.addEventListener("contextmenu", (e) => e.preventDefault());
+  const z = $("zsvg");
+  z.addEventListener("pointerdown", onDown);
+  z.addEventListener("pointermove", onMove);
+  z.addEventListener("pointerup", onUp);
+  z.addEventListener("pointercancel", () => { stroke = null; });
+  z.addEventListener("contextmenu", (e) => e.preventDefault());
+  $("btn-zclose").addEventListener("click", closeZoom);
+  $("zoom").addEventListener("pointerdown", (e) => { if (e.target === $("zoom")) closeZoom(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && zoom) closeZoom(); });
+  $("btn-new").addEventListener("click", newPuzzle);
+  $("btn-hint").addEventListener("click", onHint);
+  $("btn-undo").addEventListener("click", onUndo);
+  $("btn-clear").addEventListener("click", onClear);
+  $("btn-load").addEventListener("click", () => loadSeed($("seed").value.trim()));
+  $("btn-again").addEventListener("click", () => { $("result").hidden = true; newPuzzle(); });
+  $("btn-copy").addEventListener("click", () => {
+    const done = () => { $("btn-copy").textContent = "コピーしました"; setTimeout(() => ($("btn-copy").textContent = "シードをコピー"), 1400); };
+    try { navigator.clipboard.writeText(P ? P.seed : "").then(done, () => $("seed").select()); } catch (e) { $("seed").select(); }
+  });
+  $("live-errors").addEventListener("change", () => P && render());
+  for (const b of document.querySelectorAll(".tool")) b.addEventListener("click", () => setTool(b.dataset.tool));
+  setTool("line");
+  for (const b of document.querySelectorAll(".assist")) b.addEventListener("click", () => setAssist(b.dataset.assist));
+  let saved = null; try { saved = localStorage.getItem("slither-assist"); } catch (e) {}
+  setAssist(["off", "auto", "guide"].includes(saved) ? saved : "guide");
+  const ok = (s) => /^\d+-[ENH]-[a-z0-9]+$/i.test(s);
+  const h = (location.hash || "").slice(1);
+  loadSeed(ok(h) ? h : "6-E-kawagoe");
+  window.addEventListener("hashchange", () => { const s = location.hash.slice(1); if (P && s !== P.seed && ok(s)) loadSeed(s); });
+}
+boot();
+</script>
+</body>
+</html>
