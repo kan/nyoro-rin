@@ -1,0 +1,4 @@
+dist/
+package-lock.json
+# 設計文書は手で整えている。表の桁揃えを書き換えない
+docs/
