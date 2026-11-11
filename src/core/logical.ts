@@ -25,6 +25,17 @@ export interface TechniqueOptions {
   readonly techniques?: readonly BasicTechniqueId[];
 }
 
+export interface PropagationOptions extends TechniqueOptions {
+  /**
+   * Go on past contradictions instead of stopping: skip rule conflicts, and
+   * drop a technique's conclusion where it clashes with a decided edge.
+   * For display only (the assist's ×), where one mistake of the player's
+   * must not hide what the rest of the board still gives. Never for
+   * solving: the result proves nothing.
+   */
+  readonly tolerant?: boolean;
+}
+
 export interface PropagationResult {
   /** A new array; the input is left as it was. */
   readonly states: EdgeStates;
@@ -53,9 +64,12 @@ function movesOf(
   clues: readonly Clue[],
   states: EdgeStates,
   techniques: readonly BasicTechniqueId[],
+  tolerant = false,
 ): { moves: LogicalMove[]; contradiction?: Contradiction } {
   const analysis = analyzeBoard(geometry, states);
-  const [conflict] = findConflicts(geometry, clues, states, analysis);
+  const [conflict] = tolerant
+    ? []
+    : findConflicts(geometry, clues, states, analysis);
   if (conflict) {
     return {
       moves: [],
@@ -69,7 +83,7 @@ function movesOf(
   const moves: LogicalMove[] = [];
   for (const id of techniques) {
     const result = BASIC_TECHNIQUES[id](context);
-    if (result.contradiction) {
+    if (result.contradiction && !tolerant) {
       return { moves: [], contradiction: result.contradiction };
     }
     moves.push(...result.moves);
@@ -85,7 +99,7 @@ export function propagate(
   geometry: BoardGeometry,
   clues: readonly Clue[],
   initial: EdgeStates,
-  options: TechniqueOptions = {},
+  options: PropagationOptions = {},
 ): PropagationResult {
   const all = options.techniques ?? BASIC_TECHNIQUE_IDS;
   // After the first round the layout techniques have nothing left to add.
@@ -99,6 +113,7 @@ export function propagate(
       clues,
       states,
       round === 0 ? all : later,
+      options.tolerant,
     );
     if (contradiction) return { states, contradiction, moves: applied };
     let changed = false;
@@ -107,6 +122,7 @@ export function propagate(
       const clash =
         move.lines.some((edge) => states[edge] === CROSS) ||
         move.crosses.some((edge) => states[edge] === LINE);
+      if (clash && options.tolerant) continue;
       if (clash) {
         return {
           states,
@@ -132,8 +148,10 @@ export function propagateCrosses(
   geometry: BoardGeometry,
   clues: readonly Clue[],
   states: EdgeStates,
+  options: Pick<PropagationOptions, "tolerant"> = {},
 ): PropagationResult {
   return propagate(geometry, clues, states, {
+    ...options,
     techniques: CROSS_ONLY_TECHNIQUES,
   });
 }

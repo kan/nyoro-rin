@@ -246,6 +246,26 @@ export function loopAroundCells(
   return loop;
 }
 
+/**
+ * The cells inside a loop (1) and outside it (0): walking a row from the
+ * left, each vertical loop edge crossed flips inside and outside.
+ */
+export function cellsInsideLoop(
+  geometry: BoardGeometry,
+  loop: readonly number[],
+): Uint8Array {
+  const states = statesFromLines(geometry, loop);
+  const size = geometry.size;
+  const inside = new Uint8Array(geometry.cellCount);
+  for (let cell = 0; cell < geometry.cellCount; cell += 1) {
+    const col = cell % size;
+    const left = geometry.cellEdges[cell][2];
+    const outsideOfLeft = col === 0 ? 0 : inside[cell - 1];
+    inside[cell] = states[left] === LINE ? 1 - outsideOfLeft : outsideOfLeft;
+  }
+  return inside;
+}
+
 /** The clue of every cell, given the loop. */
 export function cluesOfLoop(
   geometry: BoardGeometry,

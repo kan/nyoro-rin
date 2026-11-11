@@ -1,0 +1,536 @@
+:root {
+  /* Colours by role; use these rather than hex values. A translucent shade
+   * uses the -rgb channels, as rgb(var(--x-rgb) / 30%), which unlike
+   * color-mix() works on iOS Safari before 16.2. */
+  --color-page: #e9efe8;
+  --color-surface-rgb: 247 250 245;
+  --color-surface: rgb(var(--color-surface-rgb));
+  --color-ink-rgb: 29 42 34;
+  --color-ink: rgb(var(--color-ink-rgb));
+  --color-ink-soft: #5f7166;
+  --color-rule: #c9d4cb;
+  --color-moss: #3d6b50;
+  --color-moss-ink: #f2f7f1;
+  /* The loop: the snake's colour (DESIGN.md 9.1). */
+  --color-loop: #d99a06;
+  --color-danger: #c43d2f;
+  --color-hint: #2f6fd1;
+  --color-focus: #2f6fd1;
+
+  --text-small: 14px;
+  --text-caption: 12px;
+
+  color: var(--color-ink);
+  background: var(--color-page);
+  font-family:
+    ui-rounded,
+    "Hiragino Maru Gothic ProN",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  /* One light look on every device: no dark theme, and the browser's own
+   * controls (checkboxes, dialogs, scrollbars) stay light too. */
+  color-scheme: only light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  line-height: 1.6;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  border: 1px solid var(--color-rule);
+  background: var(--color-surface);
+  border-radius: 10px;
+  padding: 8px 14px;
+  min-height: 44px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+button.primary {
+  background: var(--color-moss);
+  border-color: var(--color-moss);
+  color: var(--color-moss-ink);
+  font-weight: 700;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.ui-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* Keep the stroke at 2.2px whatever the icon's size. */
+.ui-icon :is(path, circle, rect, line, polyline, polygon, ellipse) {
+  vector-effect: non-scaling-stroke;
+}
+
+.icon-button {
+  width: 44px;
+  padding: 8px;
+  flex-shrink: 0;
+}
+
+.icon-button .ui-icon {
+  width: 24px;
+  height: 24px;
+}
+
+/* --- the play screen ---------------------------------------------------- */
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  width: min(100%, 560px);
+  height: 100vh;
+  height: 100dvh;
+  margin: 0 auto;
+  padding: max(8px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.top-bar .icon-button {
+  border-color: transparent;
+  background: transparent;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: var(--text-small);
+  color: var(--color-ink-soft);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--color-ink);
+}
+
+.status-text.error,
+.error {
+  color: var(--color-danger);
+}
+
+.board-area {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  container-type: size;
+}
+
+/* The largest square that fits: width and height both from the container. */
+.board-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+@supports (width: 1cqmin) {
+  .board-frame {
+    width: 100cqmin;
+  }
+}
+
+.board-frame.busy .board-svg {
+  opacity: 0.45;
+}
+
+.board-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Only the board takes over the touch gestures (AGENTS.md 「入力と操作」). */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+}
+
+.board-surface {
+  fill: var(--color-surface);
+}
+
+.loop-inside rect {
+  fill: var(--color-moss);
+  opacity: 0.16;
+}
+
+.clues text {
+  font-size: 0.56px;
+  font-weight: 800;
+  text-anchor: middle;
+  dominant-baseline: central;
+  fill: var(--color-ink);
+  pointer-events: none;
+}
+
+.clues text.satisfied {
+  opacity: 0.3;
+}
+
+.clues text.conflict {
+  fill: var(--color-danger);
+}
+
+.lines line {
+  stroke: var(--color-loop);
+  stroke-width: 0.13;
+  stroke-linecap: round;
+}
+
+/* A small loop is red and dashed: not by colour alone (DESIGN.md 9.2). */
+.lines line.conflict {
+  stroke: var(--color-danger);
+  stroke-dasharray: 0.18 0.12;
+  stroke-linecap: butt;
+}
+
+.cross {
+  fill: none;
+  stroke: var(--color-ink-soft);
+  stroke-width: 0.045;
+  stroke-linecap: round;
+}
+
+.cross.auto {
+  stroke-width: 0.03;
+  opacity: 0.45;
+}
+
+.vertices circle {
+  fill: var(--color-ink);
+  opacity: 0.65;
+}
+
+/* Branches and dead ends: a larger red ring, so size shows it too. */
+.vertices circle.conflict {
+  fill: none;
+  stroke: var(--color-danger);
+  stroke-width: 0.05;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .board-frame.solved .lines line {
+    animation: loop-closed 1.4s ease-out;
+  }
+}
+
+@keyframes loop-closed {
+  35% {
+    stroke-width: 0.22;
+  }
+}
+
+/* --- the magnified view ----------------------------------------------------- */
+
+.zoom-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(var(--color-surface-rgb) / 55%);
+  border-radius: 14px;
+  z-index: 2;
+}
+
+.zoom-box {
+  position: relative;
+  width: 94%;
+  aspect-ratio: 1;
+  background: var(--color-surface);
+  border: 1px solid var(--color-rule);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px -18px rgb(0 0 0 / 50%);
+  overflow: hidden;
+}
+
+.zoom-box .board-svg {
+  cursor: grab;
+}
+
+.zoom-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgb(var(--color-surface-rgb) / 88%);
+}
+
+/* --- clear ------------------------------------------------------------------ */
+
+.clear-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 3;
+}
+
+.clear-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px 22px;
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-rule);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px -16px rgb(0 0 0 / 40%);
+}
+
+.clear-card h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: var(--color-moss);
+}
+
+.clear-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* --- controls under the board ------------------------------------------------ */
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tool-switch {
+  display: inline-flex;
+  border: 1px solid var(--color-rule);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.tool-switch button {
+  border: 0;
+  border-radius: 0;
+  min-width: 64px;
+  font-weight: 700;
+}
+
+.tool-switch button[aria-pressed="true"] {
+  background: var(--color-ink);
+  color: var(--color-page);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* --- dialogs ------------------------------------------------------------------ */
+
+dialog {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  width: min(100% - 24px, 440px);
+  max-height: calc(100dvh - 24px);
+}
+
+dialog::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+
+.dialog-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 18px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-rule);
+  border-radius: 16px;
+}
+
+.dialog-card h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.dialog-card h3 {
+  margin: 4px 0 0;
+  font-size: var(--text-small);
+  color: var(--color-ink-soft);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-header h2 {
+  flex: 1;
+}
+
+.dialog-header .icon-button,
+.text-button {
+  border-color: transparent;
+  background: transparent;
+}
+
+.text-button {
+  padding: 6px 8px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.menu-list,
+.choice-list {
+  display: grid;
+  gap: 8px;
+}
+
+.menu-list button,
+.choice-list button {
+  justify-content: flex-start;
+  padding: 10px 14px;
+  font-weight: 700;
+}
+
+.choice-list button[aria-current="true"] {
+  border-color: var(--color-moss);
+}
+
+.menu-page {
+  display: grid;
+  gap: 8px;
+}
+
+.note {
+  margin: 0;
+  min-height: 1.6em;
+  font-size: var(--text-small);
+  color: var(--color-ink-soft);
+}
+
+.seed-row,
+.seed-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.seed-code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-small);
+}
+
+.seed-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: 10px;
+  background: var(--color-surface);
+  font-family: ui-monospace, monospace;
+}
+
+.setting-group {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.setting-group legend {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.radio,
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.radio input,
+.toggle input {
+  margin-top: 5px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-moss);
+}
+
+.radio small,
+.toggle small {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--color-ink-soft);
+}
+
+.toggle {
+  font-weight: 700;
+}
+
+.help ul {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--text-small);
+  line-height: 1.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

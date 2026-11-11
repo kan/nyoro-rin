@@ -127,13 +127,14 @@ class PatternCollector {
     value: typeof LINE | typeof CROSS,
     cells: number[],
   ): void {
-    if (this.contradiction) return;
     const todo: number[] = [];
     for (const edge of edges) {
       const state = this.context.states[edge];
       if (state === UNKNOWN) todo.push(edge);
       else if (state !== value) {
-        this.contradiction = {
+        // The first one is reported; the other places still give their
+        // moves, for callers that go on past contradictions.
+        this.contradiction ??= {
           reason: this.technique,
           places: { cells, vertices: [], edges },
         };
@@ -151,9 +152,7 @@ class PatternCollector {
   }
 
   result(): TechniqueResult {
-    return this.contradiction
-      ? { moves: [], contradiction: this.contradiction }
-      : { moves: this.moves };
+    return { moves: this.moves, contradiction: this.contradiction };
   }
 }
 

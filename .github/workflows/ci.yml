@@ -25,5 +25,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run format:check
-      - run: npm run typecheck
       - run: npm test
+      # The build type-checks first (vue-tsc), so there is no separate step.
+      - run: npm run build
