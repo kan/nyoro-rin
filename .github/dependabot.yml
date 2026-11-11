@@ -1,0 +1,39 @@
+version: 2
+updates:
+  # npm。更新は 1 つの PR にまとめる。どの PR も package-lock.json を触るので、個別に出すと
+  # 1 件取り込むたびに残りが衝突して作り直しになる。
+  #
+  # cooldown: 公開から一定の日数が経った版だけを取り込む。問題のある版や、乗っ取られて
+  # 公開された版は、たいてい数日のうちに取り下げられるため。効くのはバージョン更新だけで、
+  # セキュリティ更新（Dependabot alerts 由来の PR）は対象外なので遅れない。
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    ignore:
+      # TypeScript 7.0 はネイティブ（Go）実装で typescript/lib/tsc を公開しないため、それを
+      # require する vue-tsc（画面を入れたら build と typecheck で使う）が起動できない。
+      # TAKO-SEN と同じく 7.0.x だけを無視して 7.1 の PR は受け取る（CI が可否を判定する）。
+      - dependency-name: typescript
+        versions: ["7.0.x"]
+    groups:
+      npm:
+        patterns:
+          - "*"
+  # GitHub Actions（.github/workflows）。PR は .github/workflows/actions.lock の該当エントリも作り直す。
+  #
+  # cooldown: 公開から 3 日経った版だけを取り込む。github-actions は semver 別の日数に
+  # 対応していないので default-days だけ。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"
