@@ -93,6 +93,86 @@ describe("automatic × with conflicts hidden", () => {
   });
 });
 
+describe("guide (DESIGN.md 8.2)", () => {
+  const guide = { showConflicts: true, assist: 2 } as const;
+
+  it("lights the threes' patterns only with ×＋ガイド", () => {
+    const clues = cluesAt([
+      [0, 0, 3],
+      [3, 2, 3],
+      [3, 3, 3],
+      [5, 1, 3],
+      [6, 2, 3],
+    ]);
+    const lit = annotateBoard(geometry, clues, states(), guide);
+    expect([...lit.guideCells].sort((a, b) => a - b)).toEqual(
+      [cell(0, 0), cell(3, 2), cell(3, 3), cell(5, 1), cell(6, 2)].sort(
+        (a, b) => a - b,
+      ),
+    );
+    const crossesOnly = annotateBoard(geometry, clues, states(), on);
+    expect(crossesOnly.guideCells.size).toBe(0);
+    expect(crossesOnly.guideVertices.size).toBe(0);
+  });
+
+  it("stops lighting a pattern once its lines are drawn", () => {
+    const clues = cluesAt([[0, 0, 3]]);
+    const drawn = states(edges("h 0 0", "v 0 0"));
+    expect(annotateBoard(geometry, clues, drawn, guide).guideCells.size).toBe(
+      0,
+    );
+  });
+
+  it("lights a vertex where a line has one way on, the assist's × counted", () => {
+    // A line ends at vertex (1, 2). The 0 above it crosses the ways up and
+    // right, so only the way down is left, though no × is drawn.
+    const clues = cluesAt([[0, 2, 0]]);
+    const board = states(edges("h 1 1"));
+    const lit = annotateBoard(geometry, clues, board, guide);
+    expect([...lit.guideVertices]).toEqual([vertexIndex(7, 1, 2)]);
+  });
+
+  it("with conflicts hidden, lights nothing on a board that contradicts", () => {
+    // A line on the corner 1's corner edge: CORNER_ONE says ×. The line's
+    // end at vertex 0 has one way on, which must not light up and lead the
+    // wrong line on.
+    const clues = cluesAt([[0, 0, 1]]);
+    const board = states(edges("h 0 0"));
+    const hidden = annotateBoard(geometry, clues, board, {
+      ...guide,
+      showConflicts: false,
+    });
+    expect(hidden.autoCrosses.size).toBe(0);
+    expect(hidden.guideVertices.size).toBe(0);
+    expect(hidden.guideCells.size).toBe(0);
+  });
+
+  it("with conflicts shown, lights the rest of the board past a mistake", () => {
+    // A × on the corner 3's corner edge contradicts CORNER_THREE; the two
+    // threes elsewhere still light up.
+    const clues = cluesAt([
+      [0, 0, 3],
+      [3, 2, 3],
+      [3, 3, 3],
+    ]);
+    const board = states([], edges("h 0 0"));
+    const shown = annotateBoard(geometry, clues, board, guide);
+    expect([...shown.guideCells].sort((a, b) => a - b)).toEqual([
+      cell(3, 2),
+      cell(3, 3),
+    ]);
+  });
+
+  it("does not light counting a clue's edges", () => {
+    // A 2 with two sides crossed: its other two are lines (CLUE_REMAINING),
+    // which the player is left to count.
+    const clues = cluesAt([[3, 3, 2]]);
+    const board = states([], edges("h 3 3", "v 3 3"));
+    const lit = annotateBoard(geometry, clues, board, guide);
+    expect(lit.guideCells.size).toBe(0);
+  });
+});
+
 describe("inside of a loop", () => {
   it("finds the cells the loop encloses", () => {
     const loop = rectangleLoop(1, 2, 3, 4);

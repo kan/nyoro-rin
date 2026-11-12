@@ -472,6 +472,18 @@ export const LAYOUT_TECHNIQUES: ReadonlySet<BasicTechniqueId> = new Set([
   "DIAGONAL_THREES",
 ]);
 
+/**
+ * The techniques the guide points at (DESIGN.md 8.2): the threes' patterns
+ * and a line with one way on. Counting a clue's edges (CLUE_REMAINING) is
+ * left to the player, as the heart of the reasoning.
+ */
+export const GUIDE_TECHNIQUES: readonly BasicTechniqueId[] = [
+  "CORNER_THREE",
+  "ADJACENT_THREES",
+  "DIAGONAL_THREES",
+  "VERTEX_CONTINUE",
+];
+
 /** The basic techniques that only ever derive × (the assist's, DESIGN.md 8.1). */
 export const CROSS_ONLY_TECHNIQUES: readonly BasicTechniqueId[] = [
   "ZERO",

@@ -29,9 +29,9 @@ export interface PropagationOptions extends TechniqueOptions {
   /**
    * Go on past contradictions instead of stopping: skip rule conflicts, and
    * drop a technique's conclusion where it clashes with a decided edge.
-   * For display only (the assist's ×), where one mistake of the player's
-   * must not hide what the rest of the board still gives. Never for
-   * solving: the result proves nothing.
+   * For display only (the assist's × and guide, src/core/annotations.ts),
+   * where one mistake of the player's must not hide what the rest of the
+   * board still gives. Never for solving: the result proves nothing.
    */
   readonly tolerant?: boolean;
 }
@@ -49,13 +49,14 @@ export function availableMoves(
   geometry: BoardGeometry,
   clues: readonly Clue[],
   states: EdgeStates,
-  options: TechniqueOptions = {},
+  options: PropagationOptions = {},
 ): { moves: LogicalMove[]; contradiction?: Contradiction } {
   return movesOf(
     geometry,
     clues,
     states,
     options.techniques ?? BASIC_TECHNIQUE_IDS,
+    options.tolerant,
   );
 }
 

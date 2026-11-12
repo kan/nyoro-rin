@@ -1,5 +1,6 @@
 import { type BoardGeometry } from "./board";
-import { propagateCrosses } from "./logical";
+import { availableMoves, propagateCrosses } from "./logical";
+import { GUIDE_TECHNIQUES } from "./techniques";
 import { CROSS, UNKNOWN, type Clue, type EdgeStates } from "./model";
 import { analyzeBoard, conflictPlaces, findConflicts } from "./rules";
 import { type AssistLevel } from "./settings";
@@ -19,6 +20,10 @@ export interface BoardAnnotations {
   readonly satisfiedCells: ReadonlySet<number>;
   /** The assist's ×: unknown edges it derives, never stored (DESIGN.md 8.1). */
   readonly autoCrosses: ReadonlySet<number>;
+  /** Clues whose three pattern still draws a line (DESIGN.md 8.2). */
+  readonly guideCells: ReadonlySet<number>;
+  /** Vertices where a line has one way on (DESIGN.md 8.2). */
+  readonly guideVertices: ReadonlySet<number>;
 }
 
 export interface AnnotationOptions {
@@ -46,17 +51,34 @@ export function annotateBoard(
   }
 
   const autoCrosses = new Set<number>();
+  const guideCells = new Set<number>();
+  const guideVertices = new Set<number>();
   if (options.assist >= 1) {
     // With conflicts shown, one mistake must not hide the × the rest of the
     // board still gives: the mistake is marked in red instead. With them
     // hidden, the × stop at a contradiction, so that a wrong line cannot
     // spread wrong × unnoticed.
-    const derived = propagateCrosses(geometry, clues, states, {
-      tolerant: options.showConflicts,
-    }).states;
-    derived.forEach((state, edge) => {
+    const tolerant = options.showConflicts;
+    const derived = propagateCrosses(geometry, clues, states, { tolerant });
+    derived.states.forEach((state, edge) => {
       if (state === CROSS && states[edge] === UNKNOWN) autoCrosses.add(edge);
     });
+    // The guide follows the same rule, and more strictly: with conflicts
+    // hidden, a board that contradicts itself anywhere lights nothing, as a
+    // lit place could lead the player further along a wrong line.
+    const guided =
+      options.assist >= 2 && (tolerant || derived.contradiction === undefined);
+    if (guided) {
+      // Only the place lights up; what it decides stays the player's.
+      const { moves } = availableMoves(geometry, clues, derived.states, {
+        techniques: GUIDE_TECHNIQUES,
+        tolerant,
+      });
+      for (const move of moves) {
+        for (const cell of move.focus.cells) guideCells.add(cell);
+        for (const vertex of move.focus.vertices) guideVertices.add(vertex);
+      }
+    }
   }
 
   // A clue with a conflict is never met: too many lines miss the clue, and
@@ -82,5 +104,7 @@ export function annotateBoard(
     conflictEdges,
     satisfiedCells,
     autoCrosses,
+    guideCells,
+    guideVertices,
   };
 }

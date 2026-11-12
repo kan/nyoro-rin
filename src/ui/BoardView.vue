@@ -128,6 +128,21 @@ const autoCrosses = computed(() =>
     .join(""),
 );
 
+/** The guide's places (a few at most), as positions to draw. */
+const guideShapes = computed(() => {
+  const size = props.geometry.size;
+  return {
+    cells: [...props.annotations.guideCells].map((cell) => ({
+      cell,
+      ...cellPosition(size, cell),
+    })),
+    vertices: [...props.annotations.guideVertices].map((vertex) => ({
+      vertex,
+      ...vertexPosition(size, vertex),
+    })),
+  };
+});
+
 /** The hint's marks, as positions to draw. */
 const hintShapes = computed(() => {
   const hint = props.hint;
@@ -226,6 +241,25 @@ function onPointerCancel(event: PointerEvent): void {
           height="1"
         />
       </template>
+    </g>
+    <!-- The guide: a pale fill under the clue or vertex (DESIGN.md 9.2). -->
+    <g class="guide">
+      <rect
+        v-for="item in guideShapes.cells"
+        :key="item.cell"
+        :x="item.col + 0.06"
+        :y="item.row + 0.06"
+        width="0.88"
+        height="0.88"
+        rx="0.16"
+      />
+      <circle
+        v-for="item in guideShapes.vertices"
+        :key="item.vertex"
+        :cx="item.col"
+        :cy="item.row"
+        r="0.24"
+      />
     </g>
     <g v-if="hintShapes" class="hint-area">
       <rect
