@@ -159,6 +159,11 @@ export function propagateCrosses(
 export interface TrialOptions extends TechniqueOptions {
   /** Edges are tried from this one on, wrapping around. */
   readonly startEdge?: number;
+  /**
+   * What an edge may be assumed to be, in order; both by default. Assuming
+   * only × finds only moves that draw a line (a hint prefers those).
+   */
+  readonly assumptions?: readonly (typeof LINE | typeof CROSS)[];
 }
 
 /**
@@ -176,7 +181,7 @@ export function findTrialMove(
   for (let i = 0; i < geometry.edgeCount; i += 1) {
     const edge = (startEdge + i) % geometry.edgeCount;
     if (states[edge] !== UNKNOWN) continue;
-    for (const assumed of [LINE, CROSS] as const) {
+    for (const assumed of options.assumptions ?? [LINE, CROSS]) {
       const trial = Uint8Array.from(states);
       trial[edge] = assumed;
       const result = propagate(geometry, clues, trial, options);

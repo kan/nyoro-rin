@@ -13,11 +13,13 @@ import {
 } from "vue";
 import { annotateBoard } from "../core/annotations";
 import { type Attempt, newAttempt, withAssist } from "../core/attempt";
+import { type Hint, type HintStep, withHintStep } from "../core/hint";
 import { boardGeometry } from "../core/board";
 import { loadCurrentGame, saveCurrentGame } from "../core/current-game";
 import { CURRENT_GENERATOR_VERSION } from "../core/generator";
 import { type Difficulty, type EdgeState, type Puzzle } from "../core/model";
 import {
+  type EdgeEdit,
   type PlayBoard,
   type Stroke,
   applyEdits,
@@ -397,6 +399,19 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     if (canReset.value) setBoard(resetMarks(board.value));
   }
 
+  // --- hints ------------------------------------------------------------------
+
+  function recordHintStep(hint: Hint, step: HintStep): void {
+    if (!attempt.value || !playable.value) return;
+    attempt.value = withHintStep(attempt.value, hint, step);
+    saveGame();
+  }
+
+  /** A hint's step 3: one move, which undo takes back (DESIGN.md 11.2). */
+  function applyHint(edits: readonly EdgeEdit[]): void {
+    if (playable.value) setBoard(applyEdits(board.value, edits));
+  }
+
   return {
     puzzle,
     board,
@@ -418,6 +433,8 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     loading,
     failure,
     restore,
+    recordHintStep,
+    applyHint,
     load,
     startNew,
     start,

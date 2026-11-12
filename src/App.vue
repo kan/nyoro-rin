@@ -17,6 +17,7 @@ import { completedPlay } from "./core/results";
 import { type SeedCode } from "./core/seed-code";
 import { type Tool } from "./core/settings";
 import BoardView, { type BoardPointerEvent } from "./ui/BoardView.vue";
+import HintPanel from "./ui/HintPanel.vue";
 import MenuDialog from "./ui/MenuDialog.vue";
 import UiIcon from "./ui/UiIcon.vue";
 import {
@@ -30,10 +31,12 @@ import { BoardGesture } from "./ui/gesture";
 import { formatScore, formatSeconds } from "./ui/format";
 import { DIFFICULTY_LABELS } from "./ui/labels";
 import { usePlay } from "./ui/use-play";
+import { useHint } from "./ui/use-hint";
 import { useSettings } from "./ui/use-settings";
 
 const settings = useSettings();
 const play = usePlay(settings, { onClear: showClear });
+const hint = useHint(play);
 const { puzzle, board, geometry, annotations, inside, solved, loading } = play;
 
 const menuOpen = ref(false);
@@ -216,7 +219,10 @@ function closeZoom(): void {
 function onKeydown(event: KeyboardEvent): void {
   // Esc in a dialog closes the dialog only; the view behind it stays.
   const dialogOpen = menuOpen.value || confirmDialog.value?.open;
-  if (event.key === "Escape" && zoom.value && !dialogOpen) closeZoom();
+  // READY is modal too: what it covers ignores the key.
+  if (event.key !== "Escape" || dialogOpen || readyShown.value) return;
+  if (zoom.value) closeZoom();
+  else if (hint.open.value) hint.close();
 }
 
 // --- moves and puzzles --------------------------------------------------
@@ -342,6 +348,7 @@ onBeforeUnmount(() => {
           :annotations="annotations"
           :inside="inside"
           :label="`NYORO-RIN ${puzzle.size}×${puzzle.size} の盤面`"
+          :hint="hint.marks.value"
           v-bind="mainBoardHandlers"
         />
 
@@ -358,6 +365,7 @@ onBeforeUnmount(() => {
               :annotations="annotations"
               :view="zoom"
               label="拡大した盤面"
+              :hint="hint.marks.value"
               v-bind="zoomBoardHandlers"
             />
             <button
@@ -406,6 +414,18 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
+    <!-- The hint sits between the board and the controls: it never covers
+         the board, and undo and the tool stay at hand while reading it. -->
+    <HintPanel
+      v-if="hint.open.value"
+      :inert="readyShown"
+      :text="hint.text.value"
+      :step="hint.step.value"
+      :has-next="hint.hasNext.value"
+      :next-writes="hint.nextWrites.value"
+      @next="hint.next"
+      @close="hint.close"
+    />
     <footer class="controls" :inert="readyShown">
       <div class="tool-switch" role="group" aria-label="書き込むもの">
         <button
@@ -424,6 +444,16 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <div class="actions">
+        <button
+          type="button"
+          class="icon-button hint-button"
+          aria-label="ヒント"
+          title="ヒント"
+          :disabled="!play.playable.value"
+          @click="hint.request"
+        >
+          <UiIcon name="hint" />
+        </button>
         <button
           type="button"
           class="icon-button"

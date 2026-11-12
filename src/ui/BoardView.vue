@@ -14,6 +14,7 @@ import {
 import { type BoardAnnotations } from "../core/annotations";
 import { CROSS, LINE, type Clue, type EdgeStates } from "../core/model";
 import { type BoardPoint, type ZoomWindow, fullWindow } from "./board-input";
+import { type HintMarks } from "./hint-view";
 
 const props = defineProps<{
   geometry: BoardGeometry;
@@ -24,6 +25,8 @@ const props = defineProps<{
   inside?: Uint8Array;
   /** The part to show; the whole board by default. */
   view?: ZoomWindow;
+  /** What the open hint points at (src/ui/hint-view.ts). */
+  hint?: HintMarks;
   label: string;
 }>();
 
@@ -125,6 +128,24 @@ const autoCrosses = computed(() =>
     .join(""),
 );
 
+/** The hint's marks, as positions to draw. */
+const hintShapes = computed(() => {
+  const hint = props.hint;
+  if (!hint) return undefined;
+  const size = props.geometry.size;
+  return {
+    cells: hint.cells.map((cell) => ({ cell, ...cellPosition(size, cell) })),
+    area: hint.area.map((cell) => ({ cell, ...cellPosition(size, cell) })),
+    vertices: hint.vertices.map((vertex) => ({
+      vertex,
+      ...vertexPosition(size, vertex),
+    })),
+    edges: hint.edges.map((edge) => ({ edge, ...edgeEnds(edge) })),
+    lines: hint.lines.map((edge) => ({ edge, ...edgeEnds(edge) })),
+    crosses: hint.crosses.map((edge) => crossPath(edge, CROSS_ARM)).join(""),
+  };
+});
+
 function toEvent(event: PointerEvent): BoardPointerEvent | undefined {
   const element = svg.value;
   const matrix = element?.getScreenCTM();
@@ -206,6 +227,16 @@ function onPointerCancel(event: PointerEvent): void {
         />
       </template>
     </g>
+    <g v-if="hintShapes" class="hint-area">
+      <rect
+        v-for="item in hintShapes.area"
+        :key="item.cell"
+        :x="item.col"
+        :y="item.row"
+        width="1"
+        height="1"
+      />
+    </g>
     <g class="clues">
       <template v-for="item in cells" :key="item.cell">
         <text
@@ -232,6 +263,47 @@ function onPointerCancel(event: PointerEvent): void {
         :y1="line.y1"
         :x2="line.x2"
         :y2="line.y2"
+      />
+    </g>
+    <!-- The hint draws over the marks but leaves the clues readable:
+         frames go around the clue, never across it (DESIGN.md 9.2). -->
+    <g v-if="hintShapes" class="hint">
+      <line
+        v-for="item in hintShapes.edges"
+        :key="`e${item.edge}`"
+        class="hint-edge"
+        :x1="item.x1"
+        :y1="item.y1"
+        :x2="item.x2"
+        :y2="item.y2"
+      />
+      <line
+        v-for="item in hintShapes.lines"
+        :key="`l${item.edge}`"
+        class="hint-line"
+        :x1="item.x1"
+        :y1="item.y1"
+        :x2="item.x2"
+        :y2="item.y2"
+      />
+      <path class="hint-cross" :d="hintShapes.crosses" />
+      <rect
+        v-for="item in hintShapes.cells"
+        :key="`c${item.cell}`"
+        class="hint-cell"
+        :x="item.col + 0.1"
+        :y="item.row + 0.1"
+        width="0.8"
+        height="0.8"
+        rx="0.16"
+      />
+      <circle
+        v-for="item in hintShapes.vertices"
+        :key="`v${item.vertex}`"
+        class="hint-vertex"
+        :cx="item.col"
+        :cy="item.row"
+        r="0.2"
       />
     </g>
     <g class="vertices">
