@@ -16,7 +16,9 @@ defineProps<{
     | "zoom"
     | "seed"
     | "settings"
-    | "help";
+    | "help"
+    | "pause"
+    | "records";
 }>();
 </script>
 
@@ -85,5 +87,7 @@ defineProps<{
       <circle cx="12" cy="12" r="9" />
       <path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 5m0 3h0" />
     </template>
+    <path v-else-if="name === 'pause'" d="M9 5v14M15 5v14" />
+    <path v-else-if="name === 'records'" d="M4 20h16M7 16V10m5 6V5m5 11v-4" />
   </svg>
 </template>

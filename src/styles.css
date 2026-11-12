@@ -375,8 +375,12 @@ dialog {
   max-height: calc(100dvh - 24px);
 }
 
+/* The clock stops while a dialog is open, so the board behind it is
+ * blurred: the time off the clock is not time to read the board. */
 dialog::backdrop {
   background: rgb(0 0 0 / 35%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 
 .dialog-card {
@@ -526,6 +530,140 @@ dialog::backdrop {
   padding-left: 1.2em;
   font-size: var(--text-small);
   line-height: 1.8;
+}
+
+/* --- the clock and READY ------------------------------------------------------ */
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.timer {
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+
+/* READY hides the board: the clock is stopped (DESIGN.md 16.3). */
+.ready-overlay {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(var(--color-ink-rgb) / 88%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.ready-card {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  width: min(100%, 300px);
+  padding: 28px 20px;
+  background: var(--color-surface);
+  border-radius: 20px;
+}
+
+.ready-card h2 {
+  margin: 0;
+  font-size: clamp(32px, 9vw, 44px);
+  letter-spacing: 0.04em;
+}
+
+.ready-card .note {
+  margin: -8px 0 0;
+}
+
+/* One column, as wide as the longest button. */
+.ready-actions {
+  display: grid;
+  gap: 12px;
+  min-width: 160px;
+}
+
+.ready-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+}
+
+/* --- records ------------------------------------------------------------------ */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.stats dt {
+  font-size: var(--text-caption);
+  color: var(--color-ink-soft);
+}
+
+.stats dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats .wide {
+  grid-column: 1 / -1;
+}
+
+.stats small {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--color-ink-soft);
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.tabs button[aria-selected="true"] {
+  background: var(--color-moss);
+  border-color: var(--color-moss);
+  color: var(--color-moss-ink);
+  font-weight: 700;
+}
+
+.recent {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.recent li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.recent .when,
+.recent .hints,
+.recent .unfinished {
+  color: var(--color-ink-soft);
+}
+
+.recent .when {
+  min-width: 7.5em;
 }
 
 @media (prefers-reduced-motion: reduce) {

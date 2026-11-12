@@ -50,6 +50,39 @@
 - READY・一時停止の状態と計時済みの時間
 - ヒント使用回数、ヒントの最大段階、アシストの最大段階、正解の線を直接示した回数
 
+形式は次のとおりです（`version: 1`）。辺の番号の配列は昇順です。
+
+```json
+{
+  "version": 1,
+  "puzzle": {
+    "seedCode": "NYORO:n1:easy:...",
+    "generatorVersion": "n1",
+    "difficulty": "easy",
+    "size": 7,
+    "clues": [null, 2],
+    "solution": [0, 1]
+  },
+  "lines": [0],
+  "crosses": [3],
+  "undo": [[[0, 0, 1]]],
+  "redo": [],
+  "timer": { "status": "ready", "elapsedMs": 0 },
+  "playId": "UUID",
+  "startedAt": 0,
+  "hintsUsed": 0,
+  "maxHintStage": 0,
+  "maxAssist": 2,
+  "reveals": 0
+}
+```
+
+- `undo` と `redo` は手の配列で、各手は `[辺, 前の状態, 後の状態]` の配列。状態は `0`（未定）・`1`（線）・`2`（×）
+- `timer.status` は `ready`（READY・一時停止）か `finished`（クリア済み）。計時中は一時停止として保存し、再読み込みでは READY から再開する。`startedAt` は盤面を表示した日時
+- 読み込み時は、正解が数字を満たす輪であること、元に戻す・やり直すの履歴が線と × に矛盾しないこと、盤面が完成していることと `finished` が一致することも確かめる
+
+クリア履歴は `{ version: 1, userId, plays }` です。各要素は `playId`・シードコード・版・難易度・`startedAt`・`status`（`in-progress` か `completed`）を持ちます。`completed` には、上の試行の記録・`completedAt`・`elapsedSeconds` を加えます。`userId` は `nyoro-rin.user-id` と同じ値で、食い違うときは履歴の側を正とします。
+
 設定は `{ assist, showConflicts, tool, sound, haptics }` とします。`assist` は `0`（なし）・`1`（×を自動）・`2`（×＋ガイド）で、初期値は `2` です。`showConflicts` の初期値は `true`、`tool` は `"line"` か `"cross"` で初期値は `"line"` です。
 
 自動 × は保存しません（プレイヤーの状態から導くため）。

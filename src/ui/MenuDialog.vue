@@ -6,15 +6,18 @@
 import { nextTick, ref, watch } from "vue";
 import { type Difficulty } from "../core/model";
 import { type SeedCode, parseSeedCode } from "../core/seed-code";
+import { type ResultHistory } from "../core/results";
 import { type AssistLevel, type Settings } from "../core/settings";
+import RecordsPanel from "./RecordsPanel.vue";
 import UiIcon from "./UiIcon.vue";
 import { DIFFICULTY_LABELS } from "./labels";
 
-type MenuPage = "top" | "new" | "seed" | "settings" | "help";
+type MenuPage = "top" | "new" | "records" | "seed" | "settings" | "help";
 
 const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   top: "メニュー",
   new: "新しい問題",
+  records: "成績",
   seed: "シード",
   settings: "設定",
   help: "遊び方",
@@ -24,6 +27,8 @@ const props = defineProps<{
   open: boolean;
   seedCode: string;
   difficulty?: Difficulty;
+  history: ResultHistory;
+  currentPlayId?: string;
 }>();
 
 const settings = defineModel<Settings>("settings", { required: true });
@@ -142,6 +147,9 @@ function onDialogClick(event: MouseEvent): void {
         <button type="button" @click="page = 'new'">
           <UiIcon name="next" />新しい問題
         </button>
+        <button type="button" @click="page = 'records'">
+          <UiIcon name="records" />成績
+        </button>
         <button type="button" @click="page = 'seed'">
           <UiIcon name="seed" />シード
         </button>
@@ -166,6 +174,14 @@ function onDialogClick(event: MouseEvent): void {
             {{ label }}
           </button>
         </div>
+      </section>
+
+      <section v-else-if="page === 'records'" class="menu-page">
+        <RecordsPanel
+          :history="history"
+          :difficulty="difficulty"
+          :current-play-id="currentPlayId"
+        />
       </section>
 
       <section v-else-if="page === 'seed'" class="menu-page">
@@ -255,6 +271,10 @@ function onDialogClick(event: MouseEvent): void {
           </li>
           <li>
             盤面を長押しすると、その周りを拡大します。拡大した盤面では、点からなぞると書き込み、点以外からドラッグすると表示する場所が動きます。
+          </li>
+          <li>
+            時間は READY の OK
+            から数えます。一時停止中、メニューを開いている間、ほかのアプリやタブへ切り替えている間は止まります。
           </li>
         </ul>
       </section>

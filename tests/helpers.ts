@@ -6,6 +6,17 @@ import {
 } from "../src/core/board";
 import { type Clue, type EdgeStates } from "../src/core/model";
 import { statesFromLines } from "../src/core/rules";
+import { type KeyValueStorage } from "../src/core/storage";
+
+/** A Map-backed stand-in for localStorage; `map` shows what was written. */
+export function memoryStorage(entries: Record<string, string> = {}) {
+  const map = new Map(Object.entries(entries));
+  const storage: KeyValueStorage = {
+    getItem: (key) => map.get(key) ?? null,
+    setItem: (key, value) => void map.set(key, value),
+  };
+  return { storage, map };
+}
 
 export const SIZE = 7;
 export const geometry = boardGeometry(SIZE);

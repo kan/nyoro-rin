@@ -4,8 +4,16 @@
  * the menu above it and the tool switch and moves below it. Everything else
  * is in the menu (src/ui/MenuDialog.vue).
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { type Difficulty } from "./core/model";
+import { completedPlay } from "./core/results";
 import { type SeedCode } from "./core/seed-code";
 import { type Tool } from "./core/settings";
 import BoardView, { type BoardPointerEvent } from "./ui/BoardView.vue";
@@ -19,18 +27,21 @@ import {
   zoomWindowAt,
 } from "./ui/board-input";
 import { BoardGesture } from "./ui/gesture";
+import { formatScore, formatSeconds } from "./ui/format";
 import { DIFFICULTY_LABELS } from "./ui/labels";
 import { usePlay } from "./ui/use-play";
 import { useSettings } from "./ui/use-settings";
 
 const settings = useSettings();
-const play = usePlay(settings);
+const play = usePlay(settings, { onClear: showClear });
 const { puzzle, board, geometry, annotations, inside, solved, loading } = play;
 
 const menuOpen = ref(false);
 const zoom = ref<ZoomWindow>();
 const clearCardOpen = ref(false);
 const confirmDialog = ref<HTMLDialogElement>();
+const confirmOpen = ref(false);
+const readyButton = ref<HTMLButtonElement>();
 /** What to start once the player agrees to leave the current board. */
 let pendingStart: (() => Promise<boolean>) | undefined;
 
@@ -38,11 +49,73 @@ const difficultyLabel = computed(() =>
   puzzle.value ? DIFFICULTY_LABELS[puzzle.value.difficulty] : "",
 );
 
-watch(solved, (isSolved) => {
-  if (!isSolved) return;
+/** READY covers the board, so the time off the clock is not time to think. */
+const readyShown = computed(
+  () => play.waiting.value && !menuOpen.value && !confirmOpen.value,
+);
+
+// OK takes the focus once it can be pressed: READY also waits out the
+// making of the next board, with OK disabled meanwhile.
+watch([readyShown, loading], async ([shown, making]) => {
+  if (!shown) return;
+  zoom.value = undefined;
+  if (making) return;
+  await nextTick();
+  readyButton.value?.focus();
+});
+
+/** The record of the board on screen, once it is cleared. */
+const clearedPlay = computed(() =>
+  completedPlay(play.history.value, play.attempt.value?.playId),
+);
+
+function showClear(): void {
   zoom.value = undefined;
   clearCardOpen.value = true;
-});
+}
+
+// --- the clock --------------------------------------------------------------
+
+/**
+ * Whether closing the menu or the confirmation runs the clock again: only
+ * when it ran before they opened and the page stayed in front (as TAKO-SEN).
+ */
+let resumeOnClose = false;
+
+function holdClock(): void {
+  if (!play.running.value) return;
+  resumeOnClose = true;
+  play.pause();
+}
+
+function releaseClock(): void {
+  const resume = resumeOnClose;
+  resumeOnClose = false;
+  if (resume && document.visibilityState === "visible" && document.hasFocus()) {
+    play.start();
+  }
+}
+
+/** Another tab or app came in front: back to READY (DESIGN.md 16.3). */
+function suspend(): void {
+  resumeOnClose = false;
+  endGesture();
+  play.pause();
+}
+
+function onVisibilityChange(): void {
+  if (document.visibilityState === "hidden") suspend();
+}
+
+function openMenu(): void {
+  holdClock();
+  menuOpen.value = true;
+}
+
+function closeMenu(): void {
+  menuOpen.value = false;
+  releaseClock();
+}
 
 // --- input -------------------------------------------------------------
 
@@ -157,9 +230,11 @@ function setTool(tool: Tool): void {
  * first: the lines and × on it would be lost.
  */
 function requestStart(start: () => Promise<boolean>): void {
+  holdClock();
   menuOpen.value = false;
   if (play.marked.value && !solved.value) {
     pendingStart = start;
+    confirmOpen.value = true;
     confirmDialog.value?.showModal();
     return;
   }
@@ -167,15 +242,26 @@ function requestStart(start: () => Promise<boolean>): void {
 }
 
 async function begin(start: () => Promise<boolean>): Promise<void> {
+  resumeOnClose = false;
   zoom.value = undefined;
   clearCardOpen.value = false;
   await start();
 }
 
 function confirmStart(): void {
-  confirmDialog.value?.close();
-  if (pendingStart) void begin(pendingStart);
+  const start = pendingStart;
   pendingStart = undefined;
+  // Closing fires onConfirmClosed; the old board must not resume first.
+  resumeOnClose = false;
+  confirmDialog.value?.close();
+  if (start) void begin(start);
+}
+
+/** The confirmation closed by 続ける, Esc or confirmStart. */
+function onConfirmClosed(): void {
+  confirmOpen.value = false;
+  pendingStart = undefined;
+  releaseClock();
 }
 
 function requestNew(difficulty: Difficulty): void {
@@ -192,14 +278,23 @@ function next(): void {
 
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
-  void play.startNew("easy");
+  window.addEventListener("blur", suspend);
+  window.addEventListener("pagehide", suspend);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  if (!play.restore()) void play.startNew("easy");
 });
-onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("blur", suspend);
+  window.removeEventListener("pagehide", suspend);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+});
 </script>
 
 <template>
   <div class="app-shell">
-    <header class="top-bar">
+    <!-- READY is modal: what it covers takes no focus or clicks. -->
+    <header class="top-bar" :inert="readyShown">
       <div class="status" aria-live="polite">
         <span v-if="difficultyLabel" class="chip">
           <UiIcon name="difficulty" />{{ difficultyLabel }}
@@ -209,20 +304,35 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           {{ play.failure.value }}
         </span>
       </div>
-      <button
-        type="button"
-        class="icon-button"
-        aria-label="メニューを開く"
-        title="メニュー"
-        aria-haspopup="dialog"
-        :aria-expanded="menuOpen"
-        @click="menuOpen = true"
-      >
-        <UiIcon name="menu" />
-      </button>
+      <div class="top-actions">
+        <span v-if="puzzle" class="chip timer" aria-label="経過時間">
+          <UiIcon name="clock" />{{ formatSeconds(play.elapsedSeconds.value) }}
+        </span>
+        <button
+          v-if="play.running.value"
+          type="button"
+          class="icon-button"
+          aria-label="一時停止"
+          title="一時停止"
+          @click="play.pause"
+        >
+          <UiIcon name="pause" />
+        </button>
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="メニューを開く"
+          title="メニュー"
+          aria-haspopup="dialog"
+          :aria-expanded="menuOpen"
+          @click="openMenu"
+        >
+          <UiIcon name="menu" />
+        </button>
+      </div>
     </header>
 
-    <main class="board-area">
+    <main class="board-area" :inert="readyShown">
       <div class="board-frame" :class="{ busy: loading, solved }">
         <BoardView
           v-if="puzzle"
@@ -269,6 +379,20 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             aria-labelledby="clear-title"
           >
             <h2 id="clear-title">輪が閉じました</h2>
+            <dl v-if="clearedPlay" class="stats">
+              <div>
+                <dt>時間</dt>
+                <dd>{{ formatSeconds(clearedPlay.elapsedSeconds) }}</dd>
+              </div>
+              <div>
+                <dt>ヒント</dt>
+                <dd>{{ clearedPlay.hintsUsed }}</dd>
+              </div>
+              <div>
+                <dt>スコア</dt>
+                <dd>{{ formatScore(clearedPlay) }}</dd>
+              </div>
+            </dl>
             <div class="clear-actions">
               <button type="button" class="primary" @click="next">
                 <UiIcon name="next" />次の問題
@@ -282,7 +406,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       </div>
     </main>
 
-    <footer class="controls">
+    <footer class="controls" :inert="readyShown">
       <div class="tool-switch" role="group" aria-label="書き込むもの">
         <button
           type="button"
@@ -343,12 +467,43 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       </div>
     </footer>
 
+    <div v-if="readyShown" class="ready-overlay" role="presentation">
+      <section
+        class="ready-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ready-title"
+      >
+        <h2 id="ready-title">READY?</h2>
+        <p v-if="loading" class="note">問題を作っています…</p>
+        <p v-else-if="play.elapsedSeconds.value > 0" class="note">
+          一時停止中（{{ formatSeconds(play.elapsedSeconds.value) }}）
+        </p>
+        <div class="ready-actions">
+          <button
+            ref="readyButton"
+            type="button"
+            class="primary"
+            :disabled="loading"
+            @click="play.start"
+          >
+            OK
+          </button>
+          <button type="button" @click="openMenu">
+            <UiIcon name="menu" />メニュー
+          </button>
+        </div>
+      </section>
+    </div>
+
     <MenuDialog
       v-model:settings="settings"
       :open="menuOpen"
       :seed-code="play.seedCode.value"
       :difficulty="puzzle?.difficulty"
-      @close="menuOpen = false"
+      :history="play.history.value"
+      :current-play-id="play.attempt.value?.playId"
+      @close="closeMenu"
       @new-puzzle="requestNew"
       @load-seed="loadSeed"
     />
@@ -357,6 +512,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       ref="confirmDialog"
       class="confirm-dialog"
       aria-labelledby="confirm-title"
+      @close="onConfirmClosed"
     >
       <div class="dialog-card">
         <h2 id="confirm-title">この問題をやめますか？</h2>

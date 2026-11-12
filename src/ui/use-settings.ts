@@ -5,16 +5,7 @@ import {
   loadSettings,
   saveSettings,
 } from "../core/settings";
-import { type KeyValueStorage } from "../core/storage";
-
-/** localStorage, or nothing where site data is blocked (reading it throws). */
-export function browserStorage(): KeyValueStorage | undefined {
-  try {
-    return window.localStorage;
-  } catch {
-    return undefined;
-  }
-}
+import { browserStorage } from "./browser-storage";
 
 /** The device's settings, saved whenever they change. */
 export function useSettings(): Ref<Settings> {

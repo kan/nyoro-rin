@@ -6,15 +6,7 @@ import {
   saveSettings,
 } from "../src/core/settings";
 import { type KeyValueStorage } from "../src/core/storage";
-
-function memoryStorage(entries: Record<string, string> = {}) {
-  const map = new Map(Object.entries(entries));
-  const storage: KeyValueStorage = {
-    getItem: (key) => map.get(key) ?? null,
-    setItem: (key, value) => void map.set(key, value),
-  };
-  return { storage, map };
-}
+import { memoryStorage } from "./helpers";
 
 describe("settings (DATA_CONTRACT.md)", () => {
   it("starts with ×＋ガイド, conflicts shown and the line tool", () => {

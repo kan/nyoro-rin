@@ -1,5 +1,12 @@
 import { type BoardGeometry } from "./board";
-import { CROSS, LINE, type Clue, type EdgeStates, type Places } from "./model";
+import {
+  CROSS,
+  LINE,
+  type Clue,
+  type EdgeState,
+  type EdgeStates,
+  type Places,
+} from "./model";
 
 /**
  * A contradiction visible from the rules alone, without the answer
@@ -210,9 +217,14 @@ export function isSolved(
 
 /** The line edges, ascending. */
 export function lineEdges(states: EdgeStates): number[] {
+  return edgesWithState(states, LINE);
+}
+
+/** The edges in this state, ascending. */
+export function edgesWithState(states: EdgeStates, state: EdgeState): number[] {
   const edges: number[] = [];
   for (let edge = 0; edge < states.length; edge += 1) {
-    if (states[edge] === LINE) edges.push(edge);
+    if (states[edge] === state) edges.push(edge);
   }
   return edges;
 }
