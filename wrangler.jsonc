@@ -54,7 +54,7 @@
           "binding": "DB",
           "database_name": "nyoro-dev",
           // Filled in when the database is created (docs/DEPLOY.md).
-          "database_id": "REPLACE_WITH_NYORO_DEV_DATABASE_ID",
+          "database_id": "50a658ba-1f92-49f4-8c21-3b2a19cde835",
           "migrations_dir": "migrations",
         },
       ],
