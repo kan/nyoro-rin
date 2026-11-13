@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { vertexIndex } from "../src/core/board";
-import type { Clue, EdgeStates } from "../src/core/model";
+import { generatePuzzle } from "../src/core/generator";
+import {
+  CROSS,
+  DIFFICULTIES,
+  LINE,
+  type Clue,
+  type EdgeStates,
+} from "../src/core/model";
+import { createWideSeededRandom } from "../src/core/random";
 import {
   type Technique,
   adjacentThrees,
@@ -9,6 +17,8 @@ import {
   cornerOne,
   cornerThree,
   diagonalThrees,
+  lineIntoOne,
+  lineIntoThree,
   smallLoop,
   techniqueContext,
   vertexBranch,
@@ -252,5 +262,105 @@ describe("SMALL_LOOP", () => {
 
   it("lets the loop close when it holds every line", () => {
     expect(run(smallLoop, none, states(cup)).moves).toEqual([]);
+  });
+});
+
+describe("LINE_INTO_THREE", () => {
+  const three = cluesAt([[2, 2, 3]]);
+
+  it("draws the far sides and crosses the way on outside", () => {
+    // A line arrives at the 3's top-left corner from above.
+    const board = states(edges("v 1 2"));
+    expect(derived(lineIntoThree, three, board)).toEqual({
+      lines: sorted(edges("h 3 2", "v 2 3")),
+      crosses: edges("h 2 1"),
+    });
+    const [move] = run(lineIntoThree, three, board).moves;
+    expect(move.focus).toEqual({
+      cells: [cell(2, 2)],
+      vertices: [vertexIndex(7, 2, 2)],
+      edges: [],
+    });
+    expect(move.premises.edges).toEqual(edges("v 1 2"));
+  });
+
+  it("needs a line arriving from outside the cell", () => {
+    expect(run(lineIntoThree, three).moves).toEqual([]);
+    // The 3's own side at the corner is not a line from outside.
+    expect(run(lineIntoThree, three, states(edges("h 2 2"))).moves).toEqual([]);
+  });
+
+  it("works at the board's corner, where the corner has no other way out", () => {
+    const corner = cluesAt([[0, 1, 3]]);
+    const board = states(edges("h 0 0"));
+    expect(derived(lineIntoThree, corner, board)).toEqual({
+      lines: sorted(edges("h 1 1", "v 0 2")),
+      crosses: [],
+    });
+  });
+
+  it("finds a far side already crossed contradictory", () => {
+    const board = states(edges("v 1 2"), edges("h 3 2"));
+    expect(run(lineIntoThree, three, board).contradiction?.reason).toBe(
+      "LINE_INTO_THREE",
+    );
+  });
+});
+
+describe("LINE_INTO_ONE", () => {
+  const one = cluesAt([[2, 2, 1]]);
+
+  it("crosses the far sides once the line cannot go on outside", () => {
+    const board = states(edges("v 1 2"), edges("h 2 1"));
+    expect(derived(lineIntoOne, one, board)).toEqual({
+      lines: [],
+      crosses: sorted(edges("h 3 2", "v 2 3")),
+    });
+  });
+
+  it("decides nothing while the line may still go on outside", () => {
+    expect(run(lineIntoOne, one, states(edges("v 1 2"))).moves).toEqual([]);
+  });
+
+  it("decides nothing when two lines meet at the corner outside", () => {
+    // The line passes the corner without entering the 1, which may then
+    // take one of its far sides: crossing them would be wrong.
+    const board = states(edges("v 1 2", "h 2 1"));
+    expect(run(lineIntoOne, one, board).moves).toEqual([]);
+    expect(run(lineIntoOne, one, board).contradiction).toBeUndefined();
+  });
+});
+
+describe("intermediate techniques are sound", () => {
+  // Boards that agree with a real answer, partly decided: no technique may
+  // derive anything against the answer, nor find a contradiction.
+  const techniques = { lineIntoThree, lineIntoOne };
+  const puzzles = DIFFICULTIES.flatMap((difficulty) =>
+    [0, 1, 2, 3].map((n) => generatePuzzle(`sound-${n}`, difficulty).puzzle),
+  );
+
+  it.each(Object.entries(techniques))("%s", (_, technique) => {
+    const random = createWideSeededRandom("intermediate-soundness");
+    let applied = 0;
+    for (const puzzle of puzzles) {
+      const answer = new Set(puzzle.solution);
+      for (const share of [0.2, 0.4, 0.6, 0.8]) {
+        for (let trial = 0; trial < 25; trial += 1) {
+          const board = states();
+          for (let e = 0; e < geometry.edgeCount; e += 1) {
+            if (random.next() < share) board[e] = answer.has(e) ? LINE : CROSS;
+          }
+          const result = run(technique, [...puzzle.clues], board);
+          expect(result.contradiction).toBeUndefined();
+          for (const move of result.moves) {
+            applied += 1;
+            for (const e of move.lines) expect(answer.has(e)).toBe(true);
+            for (const e of move.crosses) expect(answer.has(e)).toBe(false);
+          }
+        }
+      }
+    }
+    // The check means something only if the technique was used.
+    expect(applied).toBeGreaterThan(20);
   });
 });

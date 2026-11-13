@@ -3,6 +3,7 @@ import {
   cellPosition,
   horizontalEdge,
   verticalEdge,
+  vertexIndex,
 } from "./board";
 import {
   CROSS,
@@ -37,7 +38,16 @@ export type BasicTechniqueId =
   | "VERTEX_DEAD_END"
   | "SMALL_LOOP";
 
-export type TechniqueId = BasicTechniqueId | "TRIAL";
+/**
+ * Intermediate techniques (DESIGN.md 12.3), used by hints and the guide
+ * only: board making and difficulty rating do not use them (yet).
+ */
+export type IntermediateTechniqueId = "LINE_INTO_THREE" | "LINE_INTO_ONE";
+
+/** A technique that reads the board, as opposed to a trial. */
+export type StepTechniqueId = BasicTechniqueId | IntermediateTechniqueId;
+
+export type TechniqueId = StepTechniqueId | "TRIAL";
 
 /** A contradiction found while reasoning, and where it is. */
 export interface Contradiction {
@@ -440,6 +450,163 @@ export const smallLoop: Technique = (context) => {
   return { moves };
 };
 
+/**
+ * A clue's corner where exactly one line arrives from outside the cell:
+ * `far` are the cell's two edges away from the corner, `arriving` the line,
+ * `otherOutside` the corner's other edges that are not the cell's.
+ *
+ * With two lines arriving, the line does not go on into the cell at all,
+ * and neither technique holds (that corner is VERTEX_BRANCH's).
+ */
+interface ClueCorner {
+  readonly cell: number;
+  readonly vertex: number;
+  readonly far: readonly [number, number];
+  readonly arriving: number;
+  readonly otherOutside: readonly number[];
+}
+
+function cornersWithArrivingLine(
+  context: TechniqueContext,
+  clue: Clue,
+): ClueCorner[] {
+  const { geometry, clues, states } = context;
+  const size = geometry.size;
+  const corners: ClueCorner[] = [];
+  clues.forEach((value, cell) => {
+    if (value !== clue) return;
+    const { row, col } = cellPosition(size, cell);
+    const [top, bottom, left, right] = geometry.cellEdges[cell];
+    const layout = [
+      {
+        vertex: vertexIndex(size, row, col),
+        inner: [top, left],
+        far: [bottom, right],
+      },
+      {
+        vertex: vertexIndex(size, row, col + 1),
+        inner: [top, right],
+        far: [bottom, left],
+      },
+      {
+        vertex: vertexIndex(size, row + 1, col),
+        inner: [bottom, left],
+        far: [top, right],
+      },
+      {
+        vertex: vertexIndex(size, row + 1, col + 1),
+        inner: [bottom, right],
+        far: [top, left],
+      },
+    ] as const;
+    for (const { vertex, inner, far } of layout) {
+      const outside = geometry.vertexEdges[vertex].filter(
+        (edge) => edge !== inner[0] && edge !== inner[1],
+      );
+      const arriving = outside.filter((edge) => states[edge] === LINE);
+      if (arriving.length !== 1) continue;
+      corners.push({
+        cell,
+        vertex,
+        far,
+        arriving: arriving[0],
+        otherOutside: outside.filter((edge) => edge !== arriving[0]),
+      });
+    }
+  });
+  return corners;
+}
+
+/**
+ * Collects a corner technique's moves: the edges it decides, those still
+ * unknown as the move, a decided edge against it as a contradiction.
+ */
+function cornerMoves(
+  context: TechniqueContext,
+  technique: IntermediateTechniqueId,
+  decided: (corner: ClueCorner) => {
+    lines: readonly number[];
+    crosses: readonly number[];
+    /** Decided edges the reason needs besides the arriving line. */
+    premises?: readonly number[];
+  },
+  corners: readonly ClueCorner[],
+): TechniqueResult {
+  const { states } = context;
+  const moves: LogicalMove[] = [];
+  let contradiction: Contradiction | undefined;
+  for (const corner of corners) {
+    const { lines, crosses, premises } = decided(corner);
+    const focus: Places = {
+      cells: [corner.cell],
+      vertices: [corner.vertex],
+      edges: [],
+    };
+    const clash =
+      lines.some((edge) => states[edge] === CROSS) ||
+      crosses.some((edge) => states[edge] === LINE);
+    if (clash) {
+      contradiction ??= { reason: technique, places: focus };
+      continue;
+    }
+    const newLines = lines.filter((edge) => states[edge] === UNKNOWN);
+    const newCrosses = crosses.filter((edge) => states[edge] === UNKNOWN);
+    if (newLines.length === 0 && newCrosses.length === 0) continue;
+    moves.push({
+      technique,
+      lines: newLines,
+      crosses: newCrosses,
+      focus,
+      premises: onEdges([corner.arriving, ...(premises ?? [])]),
+    });
+  }
+  return { moves, contradiction };
+}
+
+/**
+ * A line arrives at a 3's corner from outside: the 3's two far edges are
+ * lines, and the corner's other outside edge is ×.
+ *
+ * Proof: the line goes on from the corner along one edge. Going on outside
+ * would leave the 3 only its two far edges, one short; so it goes on along
+ * one of the two edges at the corner (both would branch). The 3 then has
+ * exactly one of those two, so its two far edges are lines; and the corner
+ * already has its two lines, so the rest of its edges are ×.
+ */
+export const lineIntoThree: Technique = (context) =>
+  cornerMoves(
+    context,
+    "LINE_INTO_THREE",
+    (corner) => ({
+      lines: corner.far,
+      crosses: corner.otherOutside,
+    }),
+    cornersWithArrivingLine(context, 3),
+  );
+
+/**
+ * A line arrives at a 1's corner from outside and cannot go on outside
+ * (the corner's other outside edges are ×, or there are none): the 1's
+ * two far edges are ×.
+ *
+ * Proof: the line must go on along one of the 1's two edges at the corner,
+ * which is then the 1's only line.
+ */
+export const lineIntoOne: Technique = (context) =>
+  cornerMoves(
+    context,
+    "LINE_INTO_ONE",
+    // The × that keep the line from going on outside are part of the reason.
+    (corner) => ({
+      lines: [],
+      crosses: corner.far,
+      premises: corner.otherOutside,
+    }),
+    cornersWithArrivingLine(context, 1).filter((corner) =>
+      corner.otherOutside.every((edge) => context.states[edge] === CROSS),
+    ),
+  );
+
 /** Every basic technique, in the order a hint prefers among equals. */
 export const BASIC_TECHNIQUES: Readonly<Record<BasicTechniqueId, Technique>> = {
   ZERO: zero,
@@ -459,12 +626,24 @@ export const BASIC_TECHNIQUE_IDS = Object.keys(
   BASIC_TECHNIQUES,
 ) as BasicTechniqueId[];
 
+/** Every technique that reads the board, basic first. */
+export const STEP_TECHNIQUES: Readonly<Record<StepTechniqueId, Technique>> = {
+  ...BASIC_TECHNIQUES,
+  LINE_INTO_THREE: lineIntoThree,
+  LINE_INTO_ONE: lineIntoOne,
+};
+
+/** Basic first, then intermediate: the order hints prefer (DESIGN.md 11.1). */
+export const STEP_TECHNIQUE_IDS = Object.keys(
+  STEP_TECHNIQUES,
+) as StepTechniqueId[];
+
 /**
  * Techniques whose conclusion depends on the clue layout alone. Once applied,
  * their edges never change again, so propagation runs them only in its first
  * round.
  */
-export const LAYOUT_TECHNIQUES: ReadonlySet<BasicTechniqueId> = new Set([
+export const LAYOUT_TECHNIQUES: ReadonlySet<StepTechniqueId> = new Set([
   "ZERO",
   "CORNER_ONE",
   "CORNER_THREE",
@@ -477,11 +656,13 @@ export const LAYOUT_TECHNIQUES: ReadonlySet<BasicTechniqueId> = new Set([
  * and a line with one way on. Counting a clue's edges (CLUE_REMAINING) is
  * left to the player, as the heart of the reasoning.
  */
-export const GUIDE_TECHNIQUES: readonly BasicTechniqueId[] = [
+export const GUIDE_TECHNIQUES: readonly StepTechniqueId[] = [
   "CORNER_THREE",
   "ADJACENT_THREES",
   "DIAGONAL_THREES",
   "VERTEX_CONTINUE",
+  "LINE_INTO_THREE",
+  "LINE_INTO_ONE",
 ];
 
 /** The basic techniques that only ever derive × (the assist's, DESIGN.md 8.1). */

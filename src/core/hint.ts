@@ -17,7 +17,7 @@ import {
 import { type EdgeEdit } from "./play";
 import { edgesWithState, isSolved } from "./rules";
 import { solveCompletely } from "./solver";
-import { type LogicalMove } from "./techniques";
+import { STEP_TECHNIQUE_IDS, type LogicalMove } from "./techniques";
 
 /** A step the techniques explain, with the × its reason relies on. */
 export interface MoveHint {
@@ -87,14 +87,23 @@ export function findHint(
     ].sort((a, b) => a - b),
   });
 
-  const { moves } = availableMoves(geometry, clues, known);
+  // Hints reason with every technique, intermediate ones included, and
+  // with them inside a trial too (DESIGN.md 12.3).
+  const techniques = STEP_TECHNIQUE_IDS;
+  const { moves } = availableMoves(geometry, clues, known, { techniques });
   const line =
     moves.find((move) => move.lines.length > 0) ??
-    findTrialMove(geometry, clues, known, { assumptions: [CROSS] });
+    findTrialMove(geometry, clues, known, {
+      techniques,
+      assumptions: [CROSS],
+    });
   if (line) return withCrosses(line);
   const cross =
     moves.find((move) => move.crosses.length > 0) ??
-    findTrialMove(geometry, clues, known, { assumptions: [LINE] });
+    findTrialMove(geometry, clues, known, {
+      techniques,
+      assumptions: [LINE],
+    });
   if (cross) return withCrosses(cross);
 
   for (const edge of puzzle.solution) {

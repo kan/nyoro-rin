@@ -163,6 +163,14 @@ describe("guide (DESIGN.md 8.2)", () => {
     ]);
   });
 
+  it("lights a 3 a line arrives at, and the corner it arrives at", () => {
+    const clues = cluesAt([[2, 2, 3]]);
+    const board = states(edges("v 1 2"));
+    const lit = annotateBoard(geometry, clues, board, guide);
+    expect([...lit.guideCells]).toEqual([cell(2, 2)]);
+    expect(lit.guideVertices.has(vertexIndex(7, 2, 2))).toBe(true);
+  });
+
   it("does not light counting a clue's edges", () => {
     // A 2 with two sides crossed: its other two are lines (CLUE_REMAINING),
     // which the player is left to count.

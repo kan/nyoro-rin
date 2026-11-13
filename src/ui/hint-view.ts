@@ -93,6 +93,8 @@ const TECHNIQUE_NAMES: Readonly<Record<TechniqueId, string>> = {
   VERTEX_CONTINUE: "線の延長",
   VERTEX_DEAD_END: "行き止まり",
   SMALL_LOOP: "小さな輪",
+  LINE_INTO_THREE: "線が入ってくる 3",
+  LINE_INTO_ONE: "線が入ってくる 1",
   TRIAL: "仮置き",
 };
 
@@ -139,6 +141,10 @@ function moveReason(
       return "この点で線が通れる向きは 1 つしかないので、線を引くと行き止まりになります。";
     case "SMALL_LOOP":
       return "ここをつなぐと小さな輪が閉じて、ほかの線とつながれなくなります。";
+    case "LINE_INTO_THREE":
+      return "この 3 の角（青い丸の点）に、外から線が来ています。外へ抜けると 3 本に届かないので、線は角から 3 の辺のどちらかへ進みます。なので、角に接しない 2 辺は線、角のほかの外側の辺は × になります。";
+    case "LINE_INTO_ONE":
+      return "この 1 の角（青い丸の点）に外から線が来ていて、外へは抜けられません。線は角から 1 の辺のどちらかへ進み、それが 1 本目になります。なので、角に接しない 2 辺は × になります。";
     case "TRIAL": {
       const trial = move.trial!;
       // The assumed edge is the trial's focus and glows from step 1 on;

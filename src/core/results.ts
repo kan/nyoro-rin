@@ -126,14 +126,22 @@ export function finishPlay(
 
 // --- score and records ------------------------------------------------------
 
-export const BASE_SCORE = 10_000;
-export const HINT_PENALTY = 30;
+/** Speed points are this divided by the clear seconds: 5 minutes earn 1,000. */
+export const SPEED_POINTS = 300_000;
+export const NO_HINT_BONUS = 300;
 
-/** DESIGN.md 16.2. */
+/**
+ * DESIGN.md 16.2: points are only added, and speed points never reach 0,
+ * so even a long play keeps its order. Integer division, so that a database
+ * query can give the same number.
+ */
 export function score(
   play: Pick<CompletedPlay, "elapsedSeconds" | "hintsUsed">,
 ): number {
-  return BASE_SCORE - play.elapsedSeconds - HINT_PENALTY * play.hintsUsed;
+  return (
+    Math.floor(SPEED_POINTS / Math.max(1, play.elapsedSeconds)) +
+    (play.hintsUsed === 0 ? NO_HINT_BONUS : 0)
+  );
 }
 
 /** Better first: score, then time, then hints (DESIGN.md 16.2). */

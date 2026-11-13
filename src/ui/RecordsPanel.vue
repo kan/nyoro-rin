@@ -3,7 +3,7 @@
  * The local records (DESIGN.md 16.1, 16.2): per difficulty, the plays and
  * clears on this device and the latest plays.
  */
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { DIFFICULTIES, type Difficulty } from "../core/model";
 import { type ResultHistory, recentPlays, summarize } from "../core/results";
 import { formatPlayDate, formatScore, formatSeconds } from "./format";
@@ -14,12 +14,12 @@ const RECENT_LIMIT = 20;
 
 const props = defineProps<{
   history: ResultHistory;
-  difficulty?: Difficulty;
   /** The attempt on the board, listed as in play rather than unfinished. */
   currentPlayId?: string;
 }>();
 
-const selected = ref<Difficulty>(props.difficulty ?? "easy");
+/** The difficulty shown; the parent may act on it too. */
+const selected = defineModel<Difficulty>("difficulty", { default: "easy" });
 
 const summary = computed(() => summarize(props.history, selected.value));
 

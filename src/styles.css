@@ -12,7 +12,7 @@
   --color-moss: #3d6b50;
   --color-moss-ink: #f2f7f1;
   /* The loop: the snake's colour (DESIGN.md 9.1). */
-  --color-loop: #d99a06;
+  --color-loop: #3f9e4d;
   --color-danger: #c43d2f;
   --color-hint: #2f6fd1;
   /* The guide's pale fill (DESIGN.md 9.2). */
@@ -386,7 +386,39 @@ button.primary {
 
 .clear-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
+}
+
+/* The next puzzle's difficulty, left of 次の問題 (as TAKO-SEN). */
+.difficulty-select {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: 10px;
+  background: var(--color-surface);
+  font: inherit;
+  color: inherit;
+}
+
+/* The board's difficulty at the top left opens its dialog. */
+.chip-button {
+  min-height: 44px;
+  padding: 0 8px 0 0;
+  border: 0;
+  background: transparent;
+}
+
+.start-actions {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.start-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* --- controls under the board ------------------------------------------------ */

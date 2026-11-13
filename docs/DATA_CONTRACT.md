@@ -38,6 +38,7 @@
 | `nyoro-rin.current-game.v1`  | プレイ中の問題と状態                       |
 | `nyoro-rin.results.v1`       | クリア履歴（`version: 1`）                 |
 | `nyoro-rin.settings.v1`      | 設定                                       |
+| `nyoro-rin.difficulty.v1`    | 新しい問題の難易度の選択                   |
 | `nyoro-rin.user-id`          | 匿名のローカルユーザー ID                  |
 | `nyoro-rin.sync-outbox.v1`   | 未送信の記録（`version: 1`）               |
 
@@ -84,6 +85,8 @@
 クリア履歴は `{ version: 1, userId, plays }` です。各要素は `playId`・シードコード・版・難易度・`startedAt`・`status`（`in-progress` か `completed`）を持ちます。`completed` には、上の試行の記録・`completedAt`・`elapsedSeconds` を加えます。`userId` は `nyoro-rin.user-id` と同じ値で、食い違うときは履歴の側を正とします。
 
 設定は `{ assist, showConflicts, tool, sound, haptics }` とします。`assist` は `0`（なし）・`1`（×を自動）・`2`（×＋ガイド）で、初期値は `2` です。`showConflicts` の初期値は `true`、`tool` は `"line"` か `"cross"` で初期値は `"line"` です。
+
+難易度の選択は、JSON の文字列 `"easy"`・`"normal"`・`"hard"`・`"random"` のどれかです（DESIGN.md 13.7）。設定とは別のキーにします。盤面の難易度とは独立していて、盤面・シード・記録には `"random"` を使いません。
 
 自動 × は保存しません（プレイヤーの状態から導くため）。
 

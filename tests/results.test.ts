@@ -100,18 +100,33 @@ describe("play history (DESIGN.md 16.1)", () => {
 });
 
 describe("score (DESIGN.md 16.2)", () => {
-  it("is 10,000 − seconds − 30 × hints", () => {
-    expect(score({ elapsedSeconds: 125, hintsUsed: 2 })).toBe(9_815);
+  it("adds speed points, 300,000 over the seconds, and 300 for no hint", () => {
+    expect(score({ elapsedSeconds: 300, hintsUsed: 0 })).toBe(1_300);
+    expect(score({ elapsedSeconds: 300, hintsUsed: 2 })).toBe(1_000);
+    // Rounded down, like integer division in a query.
+    expect(score({ elapsedSeconds: 7, hintsUsed: 1 })).toBe(42_857);
+  });
+
+  it("counts a clear in 0 seconds as 1 second", () => {
+    expect(score({ elapsedSeconds: 0, hintsUsed: 1 })).toBe(300_000);
+  });
+
+  it("keeps long plays apart: an hour still earns points", () => {
+    expect(score({ elapsedSeconds: 3_600, hintsUsed: 1 })).toBe(83);
+    expect(
+      compareCompletedPlays(completed(3_600, 1), completed(7_200, 1)),
+    ).toBeLessThan(0);
   });
 
   it("orders by score, then time, then hints", () => {
-    // Same score: 100 s with no hint against 70 s with 1 hint.
-    const slow = completed(100, 0);
-    const fast = completed(70, 1);
+    // Same score, 600: 1,000 s with no hint against 500 s with a hint.
+    const slow = completed(1_000, 0);
+    const fast = completed(500, 1);
     expect(score(slow)).toBe(score(fast));
     expect([slow, fast].sort(compareCompletedPlays)).toEqual([fast, slow]);
+    // Same score and time: fewer hints first.
     expect(
-      compareCompletedPlays(completed(80, 0), completed(90, 0)),
+      compareCompletedPlays(completed(100, 1), completed(100, 3)),
     ).toBeLessThan(0);
   });
 });

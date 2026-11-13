@@ -3,14 +3,16 @@
  * The menu: everything that is not playing the board lives here, so the
  * play screen stays the board and a few buttons.
  */
-import { nextTick, ref, watch } from "vue";
+import { ref } from "vue";
+import { type DifficultyChoice } from "../core/difficulty-choice";
 import { type Difficulty } from "../core/model";
 import { type SeedCode, parseSeedCode } from "../core/seed-code";
 import { type ResultHistory } from "../core/results";
 import { type AssistLevel, type Settings } from "../core/settings";
 import RecordsPanel from "./RecordsPanel.vue";
 import UiIcon from "./UiIcon.vue";
-import { DIFFICULTY_LABELS } from "./labels";
+import { DIFFICULTY_CHOICE_LABELS } from "./labels";
+import { useModalDialog } from "./modal-dialog";
 
 type MenuPage = "top" | "new" | "records" | "seed" | "settings" | "help";
 
@@ -26,7 +28,10 @@ const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
 const props = defineProps<{
   open: boolean;
   seedCode: string;
+  /** The board's difficulty: the records open at it. */
   difficulty?: Difficulty;
+  /** The device's choice for new puzzles, shown as current. */
+  choice: DifficultyChoice;
   history: ResultHistory;
   currentPlayId?: string;
 }>();
@@ -35,29 +40,27 @@ const settings = defineModel<Settings>("settings", { required: true });
 
 const emit = defineEmits<{
   close: [];
-  newPuzzle: [difficulty: Difficulty];
+  newPuzzle: [choice: DifficultyChoice];
   loadSeed: [code: SeedCode];
 }>();
 
-const dialog = ref<HTMLDialogElement>();
 const page = ref<MenuPage>("top");
+const recordsDifficulty = ref<Difficulty>("easy");
 const seedInput = ref("");
 const seedError = ref("");
 const copied = ref(false);
 
-watch(
+const dialog = ref<HTMLDialogElement>();
+const { onCancel, onDialogClick } = useModalDialog(
+  dialog,
   () => props.open,
-  async (open) => {
-    if (!open) {
-      dialog.value?.close();
-      return;
-    }
+  () => emit("close"),
+  () => {
     page.value = "top";
+    recordsDifficulty.value = props.difficulty ?? "easy";
     seedInput.value = "";
     seedError.value = "";
     copied.value = false;
-    await nextTick();
-    if (!dialog.value?.open) dialog.value?.showModal();
   },
 );
 
@@ -100,16 +103,6 @@ async function copySeed(): Promise<void> {
   } catch {
     copied.value = false;
   }
-}
-
-/** Esc and the backdrop close the menu through the parent. */
-function onCancel(event: Event): void {
-  event.preventDefault();
-  emit("close");
-}
-
-function onDialogClick(event: MouseEvent): void {
-  if (event.target === dialog.value) emit("close");
 }
 </script>
 
@@ -162,13 +155,15 @@ function onDialogClick(event: MouseEvent): void {
       </nav>
 
       <section v-else-if="page === 'new'" class="menu-page">
-        <p class="note">難易度を選ぶと、新しい問題を始めます。</p>
+        <p class="note">
+          難易度を選ぶと、新しい問題を始めます。次の問題もこの難易度になります。ランダムは、問題ごとに初級・中級・上級から選びます。
+        </p>
         <div class="choice-list">
           <button
-            v-for="(label, value) in DIFFICULTY_LABELS"
+            v-for="(label, value) in DIFFICULTY_CHOICE_LABELS"
             :key="value"
             type="button"
-            :aria-current="value === difficulty ? 'true' : undefined"
+            :aria-current="value === choice ? 'true' : undefined"
             @click="emit('newPuzzle', value)"
           >
             {{ label }}
@@ -178,8 +173,8 @@ function onDialogClick(event: MouseEvent): void {
 
       <section v-else-if="page === 'records'" class="menu-page">
         <RecordsPanel
+          v-model:difficulty="recordsDifficulty"
           :history="history"
-          :difficulty="difficulty"
           :current-play-id="currentPlayId"
         />
       </section>

@@ -9,20 +9,20 @@ import {
 } from "./model";
 import { analyzeBoard, conflictPlaces, findConflicts, isSolved } from "./rules";
 import {
-  BASIC_TECHNIQUES,
   BASIC_TECHNIQUE_IDS,
   CROSS_ONLY_TECHNIQUES,
   LAYOUT_TECHNIQUES,
-  type BasicTechniqueId,
+  STEP_TECHNIQUES,
   type Contradiction,
   type LogicalMove,
+  type StepTechniqueId,
   type TechniqueId,
   techniqueContext,
 } from "./techniques";
 
 export interface TechniqueOptions {
   /** The techniques to use, in order; every basic one by default. */
-  readonly techniques?: readonly BasicTechniqueId[];
+  readonly techniques?: readonly StepTechniqueId[];
 }
 
 export interface PropagationOptions extends TechniqueOptions {
@@ -64,7 +64,7 @@ function movesOf(
   geometry: BoardGeometry,
   clues: readonly Clue[],
   states: EdgeStates,
-  techniques: readonly BasicTechniqueId[],
+  techniques: readonly StepTechniqueId[],
   tolerant = false,
 ): { moves: LogicalMove[]; contradiction?: Contradiction } {
   const analysis = analyzeBoard(geometry, states);
@@ -83,7 +83,7 @@ function movesOf(
   const context = techniqueContext(geometry, clues, states, analysis);
   const moves: LogicalMove[] = [];
   for (const id of techniques) {
-    const result = BASIC_TECHNIQUES[id](context);
+    const result = STEP_TECHNIQUES[id](context);
     if (result.contradiction && !tolerant) {
       return { moves: [], contradiction: result.contradiction };
     }

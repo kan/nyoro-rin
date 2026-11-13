@@ -12,11 +12,12 @@ import {
   ref,
   watch,
 } from "vue";
-import { type Difficulty } from "./core/model";
+import { type DifficultyChoice } from "./core/difficulty-choice";
 import { completedPlay } from "./core/results";
 import { type SeedCode } from "./core/seed-code";
 import { type Tool } from "./core/settings";
 import BoardView, { type BoardPointerEvent } from "./ui/BoardView.vue";
+import DifficultyDialog from "./ui/DifficultyDialog.vue";
 import HintPanel from "./ui/HintPanel.vue";
 import MenuDialog from "./ui/MenuDialog.vue";
 import UiIcon from "./ui/UiIcon.vue";
@@ -29,7 +30,8 @@ import {
 } from "./ui/board-input";
 import { BoardGesture } from "./ui/gesture";
 import { formatScore, formatSeconds } from "./ui/format";
-import { DIFFICULTY_LABELS } from "./ui/labels";
+import { DIFFICULTY_CHOICE_LABELS, DIFFICULTY_LABELS } from "./ui/labels";
+import { useDifficultyChoice } from "./ui/use-difficulty-choice";
 import { usePlay } from "./ui/use-play";
 import { useHint } from "./ui/use-hint";
 import { useSettings } from "./ui/use-settings";
@@ -37,9 +39,12 @@ import { useSettings } from "./ui/use-settings";
 const settings = useSettings();
 const play = usePlay(settings, { onClear: showClear });
 const hint = useHint(play);
+const difficulty = useDifficultyChoice();
 const { puzzle, board, geometry, annotations, inside, solved, loading } = play;
 
-const menuOpen = ref(false);
+/** The dialog open over the board, if any; one at a time. */
+type Panel = "menu" | "difficulty";
+const panel = ref<Panel>();
 const zoom = ref<ZoomWindow>();
 const clearCardOpen = ref(false);
 const confirmDialog = ref<HTMLDialogElement>();
@@ -54,7 +59,7 @@ const difficultyLabel = computed(() =>
 
 /** READY covers the board, so the time off the clock is not time to think. */
 const readyShown = computed(
-  () => play.waiting.value && !menuOpen.value && !confirmOpen.value,
+  () => play.waiting.value && panel.value === undefined && !confirmOpen.value,
 );
 
 // OK takes the focus once it can be pressed: READY also waits out the
@@ -110,13 +115,14 @@ function onVisibilityChange(): void {
   if (document.visibilityState === "hidden") suspend();
 }
 
-function openMenu(): void {
+/** A dialog over the board stops the clock while it is open. */
+function openPanel(name: Panel): void {
   holdClock();
-  menuOpen.value = true;
+  panel.value = name;
 }
 
-function closeMenu(): void {
-  menuOpen.value = false;
+function closePanel(): void {
+  panel.value = undefined;
   releaseClock();
 }
 
@@ -218,7 +224,7 @@ function closeZoom(): void {
 
 function onKeydown(event: KeyboardEvent): void {
   // Esc in a dialog closes the dialog only; the view behind it stays.
-  const dialogOpen = menuOpen.value || confirmDialog.value?.open;
+  const dialogOpen = panel.value !== undefined || confirmDialog.value?.open;
   // READY is modal too: what it covers ignores the key.
   if (event.key !== "Escape" || dialogOpen || readyShown.value) return;
   if (zoom.value) closeZoom();
@@ -237,7 +243,7 @@ function setTool(tool: Tool): void {
  */
 function requestStart(start: () => Promise<boolean>): void {
   holdClock();
-  menuOpen.value = false;
+  panel.value = undefined;
   if (play.marked.value && !solved.value) {
     pendingStart = start;
     confirmOpen.value = true;
@@ -270,16 +276,24 @@ function onConfirmClosed(): void {
   releaseClock();
 }
 
-function requestNew(difficulty: Difficulty): void {
-  requestStart(() => play.startNew(difficulty));
+/** A new puzzle at the device's choice, drawn anew each time for random. */
+function next(): void {
+  requestStart(() => play.startNew(difficulty.next()));
+}
+
+/**
+ * Starting at a difficulty also makes it the choice for later puzzles; a
+ * start the player calls off at the confirmation changes nothing.
+ */
+function requestNew(choice: DifficultyChoice): void {
+  requestStart(() => {
+    difficulty.choose(choice);
+    return play.startNew(difficulty.next());
+  });
 }
 
 function loadSeed(code: SeedCode): void {
   requestStart(() => play.load(code));
-}
-
-function next(): void {
-  requestNew(puzzle.value?.difficulty ?? "easy");
 }
 
 onMounted(() => {
@@ -287,7 +301,9 @@ onMounted(() => {
   window.addEventListener("blur", suspend);
   window.addEventListener("pagehide", suspend);
   document.addEventListener("visibilitychange", onVisibilityChange);
-  if (!play.restore()) void play.startNew("easy");
+  const restored = play.restore();
+  difficulty.startFrom(puzzle.value?.difficulty);
+  if (!restored) void play.startNew(difficulty.next());
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
@@ -301,13 +317,24 @@ onBeforeUnmount(() => {
   <div class="app-shell">
     <!-- READY is modal: what it covers takes no focus or clicks. -->
     <header class="top-bar" :inert="readyShown">
-      <div class="status" aria-live="polite">
-        <span v-if="difficultyLabel" class="chip">
+      <div class="status">
+        <button
+          v-if="difficultyLabel"
+          type="button"
+          class="chip chip-button"
+          :aria-label="`難易度: ${difficultyLabel}。成績と、別の難易度で始める`"
+          aria-haspopup="dialog"
+          :aria-expanded="panel === 'difficulty'"
+          @click="openPanel('difficulty')"
+        >
           <UiIcon name="difficulty" />{{ difficultyLabel }}
-        </span>
-        <span v-if="loading" class="status-text">問題を作っています…</span>
-        <span v-else-if="play.failure.value" class="status-text error">
-          {{ play.failure.value }}
+        </button>
+        <!-- Only the passing messages are announced, not the button. -->
+        <span aria-live="polite">
+          <span v-if="loading" class="status-text">問題を作っています…</span>
+          <span v-else-if="play.failure.value" class="status-text error">
+            {{ play.failure.value }}
+          </span>
         </span>
       </div>
       <div class="top-actions">
@@ -330,8 +357,8 @@ onBeforeUnmount(() => {
           aria-label="メニューを開く"
           title="メニュー"
           aria-haspopup="dialog"
-          :aria-expanded="menuOpen"
-          @click="openMenu"
+          :aria-expanded="panel === 'menu'"
+          @click="openPanel('menu')"
         >
           <UiIcon name="menu" />
         </button>
@@ -402,6 +429,25 @@ onBeforeUnmount(() => {
               </div>
             </dl>
             <div class="clear-actions">
+              <select
+                :value="difficulty.choice.value"
+                class="difficulty-select"
+                aria-label="次の問題の難易度"
+                @change="
+                  difficulty.choose(
+                    ($event.target as HTMLSelectElement)
+                      .value as DifficultyChoice,
+                  )
+                "
+              >
+                <option
+                  v-for="(label, value) in DIFFICULTY_CHOICE_LABELS"
+                  :key="value"
+                  :value="value"
+                >
+                  {{ label }}
+                </option>
+              </select>
               <button type="button" class="primary" @click="next">
                 <UiIcon name="next" />次の問題
               </button>
@@ -519,7 +565,7 @@ onBeforeUnmount(() => {
           >
             OK
           </button>
-          <button type="button" @click="openMenu">
+          <button type="button" @click="openPanel('menu')">
             <UiIcon name="menu" />メニュー
           </button>
         </div>
@@ -528,14 +574,24 @@ onBeforeUnmount(() => {
 
     <MenuDialog
       v-model:settings="settings"
-      :open="menuOpen"
+      :open="panel === 'menu'"
       :seed-code="play.seedCode.value"
+      :difficulty="puzzle?.difficulty"
+      :choice="difficulty.choice.value"
+      :history="play.history.value"
+      :current-play-id="play.attempt.value?.playId"
+      @close="closePanel"
+      @new-puzzle="requestNew"
+      @load-seed="loadSeed"
+    />
+
+    <DifficultyDialog
+      :open="panel === 'difficulty'"
       :difficulty="puzzle?.difficulty"
       :history="play.history.value"
       :current-play-id="play.attempt.value?.playId"
-      @close="closeMenu"
+      @close="closePanel"
       @new-puzzle="requestNew"
-      @load-seed="loadSeed"
     />
 
     <dialog
