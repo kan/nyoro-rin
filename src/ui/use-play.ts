@@ -13,7 +13,25 @@ import {
 } from "vue";
 import { annotateBoard } from "../core/annotations";
 import { type Attempt, newAttempt, withAssist } from "../core/attempt";
-import { type Hint, type HintStep, withHintStep } from "../core/hint";
+import {
+  type Hint,
+  type HintStep,
+  hintLabel,
+  withHintStep,
+} from "../core/hint";
+import {
+  type MoveSource,
+  type PlayLog,
+  type PlayLogEvent,
+  type PlayLogUpload,
+  type PlayOutcome,
+  appendEvent,
+  changesBetween,
+  emptyPlayLog,
+  hasEnded,
+  loadPlayLog,
+  savePlayLog,
+} from "../core/play-log";
 import { boardGeometry } from "../core/board";
 import { loadCurrentGame, saveCurrentGame } from "../core/current-game";
 import { CURRENT_GENERATOR_VERSION } from "../core/generator";
@@ -35,6 +53,7 @@ import {
 import {
   type PlayTimer,
   WAITING_TIMER,
+  elapsedTimerMs,
   elapsedTimerSeconds,
   finishTimer,
   pauseTimer,
@@ -85,6 +104,13 @@ function createId(): string {
 export interface PlayOptions {
   /** Called once when the player closes the loop; not on a reload. */
   readonly onClear?: () => void;
+  /**
+   * Called once when an attempt ends, cleared or left unsolved for another
+   * board, with its play log to send (DESIGN.md 20.1).
+   */
+  readonly onPlayLog?: (upload: PlayLogUpload) => void;
+  /** The build, sent with the play log. */
+  readonly appVersion?: string;
 }
 
 export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
@@ -102,6 +128,8 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   const loading = ref(false);
   const failure = ref<string>();
   let stroke: Stroke | undefined;
+  /** What the player did in this attempt (src/core/play-log.ts). */
+  let log: PlayLog = emptyPlayLog("");
   let clock: ReturnType<typeof setInterval> | undefined;
   let lastSaved = 0;
   /** The attempt already in the history as a play. */
@@ -195,6 +223,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   function saveGame(): void {
     if (!storage || !puzzle.value || !attempt.value) return;
     lastSaved = Date.now();
+    savePlayLog(storage, log);
     saveCurrentGame(
       storage,
       {
@@ -249,6 +278,50 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     );
   }
 
+  // --- the play log -----------------------------------------------------------
+
+  /** Adds an event at the play clock's time now; saved with the game. */
+  function logEvent(make: (t: number) => PlayLogEvent): void {
+    if (!attempt.value || hasEnded(log)) return;
+    log = appendEvent(log, make(elapsedTimerMs(timer.value, Date.now())));
+  }
+
+  /**
+   * Ends the log and hands it on to be sent. Only an attempt that changed the
+   * board is a play (DESIGN.md 16.1, recordStart); a board skipped untouched
+   * sends nothing.
+   */
+  function endLog(outcome: PlayOutcome): void {
+    const current = attempt.value;
+    if (!current || !puzzle.value || hasEnded(log)) return;
+    if (recordedPlayId !== current.playId) return;
+    logEvent((t) => ["end", t, outcome]);
+    options.onPlayLog?.({
+      ...current,
+      seedCode: seedCode.value,
+      generatorVersion: puzzle.value.generatorVersion,
+      difficulty: puzzle.value.difficulty,
+      outcome,
+      endedAt: Date.now(),
+      elapsedMs: elapsedTimerMs(timer.value, Date.now()),
+      appVersion: options.appVersion ?? "",
+      truncated: log.truncated,
+      events: log.events,
+    });
+  }
+
+  /** The magnified view opened (long press). */
+  function noteZoom(): void {
+    if (playable.value) logEvent((t) => ["zoom", t]);
+  }
+
+  watch(
+    () => settings.value.tool,
+    (tool) => {
+      if (playable.value) logEvent((t) => ["tool", t, tool]);
+    },
+  );
+
   // --- the clock --------------------------------------------------------------
 
   function setTimer(next: PlayTimer): void {
@@ -269,6 +342,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   function start(): void {
     if (!waiting.value || loading.value) return;
     setTimer(startTimer(timer.value, Date.now()));
+    logEvent((t) => ["start", t]);
   }
 
   /** Back to READY; the time so far is kept and saved. */
@@ -276,6 +350,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     if (!running.value) return;
     // The save below takes the stroke so far with it.
     stroke = undefined;
+    logEvent((t) => ["pause", t]);
     setTimer(pauseTimer(timer.value, Date.now()));
     saveGame();
   }
@@ -289,6 +364,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     stroke = undefined;
     setTimer(finishTimer(timer.value, Date.now()));
     recordClear();
+    endLog("cleared");
     saveGame();
     options.onClear?.();
   }
@@ -301,6 +377,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     attempt.value = unstarted
       ? { ...attempt.value, maxAssist: level }
       : withAssist(attempt.value, level);
+    logEvent((t) => ["assist", t, level]);
     saveGame();
   });
 
@@ -318,7 +395,14 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     puzzle.value = saved.puzzle;
     board.value = saved.board;
     attempt.value = saved.attempt;
+    log = loadPlayLog(storage, saved.attempt.playId);
     setTimer(saved.timer);
+    // An attempt already in the history is a play, even with its marks all
+    // reset or undone since.
+    const { playId } = saved.attempt;
+    if (history.value.plays.some((play) => play.playId === playId)) {
+      recordedPlayId = playId;
+    }
     // Catch up on a play or a clear the history missed (it saves apart).
     if (saved.timer.status === "finished") recordClear();
     else if (marked.value) recordStart();
@@ -339,9 +423,12 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
       );
       if (request !== latestRequest) return false;
       stroke = undefined;
+      // The board being left unsolved: its log goes out as abandoned.
+      if (!solved.value) endLog("abandoned");
       puzzle.value = next;
       board.value = emptyPlayBoard(geometry.value.edgeCount);
       attempt.value = newAttempt(createId(), Date.now(), settings.value.assist);
+      log = emptyPlayLog(attempt.value.playId);
       setTimer(WAITING_TIMER);
       saveGame();
       return true;
@@ -363,9 +450,15 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
 
   // --- moves ------------------------------------------------------------------
 
-  /** Shows a move; `save` is off while a stroke is still going. */
-  function setBoard(next: PlayBoard, save = true): void {
+  /**
+   * Shows a move, and logs the edges it changed with what made it (every
+   * change to the board passes here, so the log misses none). `save` is off
+   * while a stroke is still going.
+   */
+  function setBoard(next: PlayBoard, source: MoveSource, save = true): void {
     if (next === board.value) return;
+    const changes = changesBetween(board.value.states, next.states);
+    if (changes.length > 0) logEvent((t) => ["move", t, source, changes]);
     board.value = next;
     recordStart();
     if (solved.value) finish();
@@ -379,6 +472,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
       applyEdits(board.value, [
         { edge, after: tappedState(current, settings.value.tool) },
       ]),
+      "tap",
     );
   }
 
@@ -391,9 +485,11 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   /** Adds the edges a stroke passed; the whole stroke stays one move. */
   function strokeEdges(edges: readonly number[]): void {
     if (!stroke || !playable.value) return;
+    // Until the stroke changes an edge, the board is still its base.
+    const first = board.value === stroke.base;
     const next = continueStroke(stroke, edges);
     stroke = next.stroke;
-    setBoard(next.board, false);
+    setBoard(next.board, first ? "stroke" : "stroke-more", false);
   }
 
   function endStroke(): void {
@@ -402,16 +498,16 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   }
 
   function undo(): void {
-    if (canUndo.value) setBoard(undoMove(board.value));
+    if (canUndo.value) setBoard(undoMove(board.value), "undo");
   }
 
   function redo(): void {
-    if (canRedo.value) setBoard(redoMove(board.value));
+    if (canRedo.value) setBoard(redoMove(board.value), "redo");
   }
 
   /** Clears the marks; the attempt, clock and records go on (DESIGN.md 16.4). */
   function reset(): void {
-    if (canReset.value) setBoard(resetMarks(board.value));
+    if (canReset.value) setBoard(resetMarks(board.value), "reset");
   }
 
   // --- hints ------------------------------------------------------------------
@@ -419,12 +515,13 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   function recordHintStep(hint: Hint, step: HintStep): void {
     if (!attempt.value || !playable.value) return;
     attempt.value = withHintStep(attempt.value, hint, step);
+    logEvent((t) => ["hint", t, step, hintLabel(hint)]);
     saveGame();
   }
 
   /** A hint's step 3: one move, which undo takes back (DESIGN.md 11.2). */
   function applyHint(edits: readonly EdgeEdit[]): void {
-    if (playable.value) setBoard(applyEdits(board.value, edits));
+    if (playable.value) setBoard(applyEdits(board.value, edits), "hint");
   }
 
   return {
@@ -462,5 +559,6 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     undo,
     redo,
     reset,
+    noteZoom,
   };
 }

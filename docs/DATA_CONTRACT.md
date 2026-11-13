@@ -41,6 +41,11 @@
 | `nyoro-rin.difficulty.v1`    | 新しい問題の難易度の選択                   |
 | `nyoro-rin.user-id`          | 匿名のローカルユーザー ID                  |
 | `nyoro-rin.sync-outbox.v1`   | 未送信の記録（`version: 1`）               |
+| `nyoro-rin.play-log.v1`      | プレイ中の試行のプレイログ（`version: 1`） |
+| `nyoro-rin.log-outbox.v1`    | 未送信のプレイログ（`version: 1`）         |
+| `nyoro-rin.sent-feedback.v1` | 送った感想（`version: 1`、新しい順に 20 件） |
+| `nyoro-rin.kan-game-id.v1`   | ID 基盤が最後に確かめた ID（認証情報ではない） |
+| `nyoro-rin.account-profile.v1:<ID>` | ID ごとのプレイヤー名と同意の写し（表示用） |
 
 プレイ中の状態には、以下を含めます。
 
@@ -107,7 +112,7 @@ TAKO-SEN と違い、ミス数はありません。
 - ID を持つ端末で新たにクリアした完了記録を、プレイヤー名の設定前から自動で送信する。ID を持つ前のクリアは後から送信しない。送信後もローカル履歴は削除しない
 - サーバーは、認証済みのアカウント ID と `playId` の組を一意に扱う。同じ内容の再送は成功、違う内容の再送は上書きせず `409` を返す
 - プレイ中の盤面は同期しない
-- 未送信の記録は、アカウント ID と結果の組として同期キューに保存する。同じ ID の Cookie を持つあいだだけ送信し、成功するまで保持する。再接続時と 30 秒間隔で再試行する。端末の ID が変わったら、前の ID の未送信記録は捨てる（ローカル履歴には残る）
+- 未送信の記録は、アカウント ID と `POST /api/plays` の本文の組として同期キュー（`{ version: 1, pending: [{ accountId, item }] }`）に保存する。本文はクリアした時点の盤面から作る。同じ ID の Cookie を持つあいだだけ送信し、成功するまで保持する。再接続時と 30 秒間隔で再試行する。端末の ID が変わったら、前の ID の未送信記録は捨てる（ローカル履歴には残る）
 
 ## API
 
@@ -123,6 +128,8 @@ TAKO-SEN と違い、ミス数はありません。
 | `GET /api/plays`                  | ID   | 本人の完了記録（新しい順に最大 500 件）      |
 | `POST /api/plays`                 | ID   | 完了記録を 1 件登録する                      |
 | `GET /api/leaderboards/:puzzleId` | 不要 | 問題別ランキング                             |
+| `POST /api/play-logs`             | ID   | 試行 1 回分のプレイログを登録する            |
+| `POST /api/feedback`              | ID   | 感想を 1 件登録する                          |
 
 ### `POST /api/plays`
 
@@ -155,7 +162,7 @@ TAKO-SEN と違い、ミス数はありません。
 
 `loop` の照合は TAKO-SEN の通常問題にない検証です。辺の集合を比べるだけで安く、クリアの申告を盤面と照合できます。時間・ヒント・アシストは引き続きクライアントの申告値です。
 
-新規の登録は、アカウントごとに 60 秒の固定窓で 10 件まで。超えたら `429` と `Retry-After: 60` を返します。同じ内容の再送は制限しません。
+新規の登録は、アカウントごとに 60 秒の固定窓で 10 件まで。超えたら `429` と `Retry-After: 60` を返します。件数は盤面を再生成して検証する前に数えるので、検証に失敗した送信も数えます（再生成は CPU を使うため）。保存済みの `playId` の再送は、保存した記録と比べて答え、数えません。
 
 成功の応答は `{ status, entries }` です。`entries` は登録した問題のランキングで、`GET /api/leaderboards/:puzzleId` と同じ形です。ランキングの読み取りに失敗しても登録は成功とし、`entries` を省きます。
 
@@ -173,15 +180,92 @@ TAKO-SEN と違い、ミス数はありません。
 - 順位は [`DESIGN.md`](./DESIGN.md) 16.2 のスコアの降順、同点ならクリア時間・ヒント使用回数の昇順。すべて同じなら同順位（1、1、3）
 - 応答の各行は `{ rank, displayName, elapsedSeconds, hintsUsed, maxHintStage, maxAssist, isSelf }` だけとする。アカウント ID・ローカル ID・`playId`・日時・正解は含めない。`isSelf` は Cookie があるときだけ真になりうる
 
+### プレイログ
+
+[`DESIGN.md`](./DESIGN.md) 20.1 のプレイログです。形式の正本は `src/core/play-log.ts` です。
+
+端末は、プレイ中の試行のログを `nyoro-rin.play-log.v1` に `{ version: 1, playId, events, truncated }` として持ちます。`playId` がプレイ中の状態と違うログは読み捨てます。試行が終わったら `POST /api/play-logs` の本文を作り、未送信のプレイログ（`nyoro-rin.log-outbox.v1`、同期キューと同じ形、20 件まで）に入れて送ります。
+
+`POST /api/play-logs` の本文:
+
+```json
+{
+  "playId": "UUID",
+  "seedCode": "NYORO:n1:easy:...",
+  "generatorVersion": "n1",
+  "difficulty": "easy",
+  "outcome": "cleared",
+  "startedAt": 0,
+  "endedAt": 0,
+  "elapsedMs": 0,
+  "hintsUsed": 0,
+  "maxHintStage": 0,
+  "maxAssist": 2,
+  "reveals": 0,
+  "appVersion": "0.0.0+a44dd3f",
+  "truncated": false,
+  "events": [["start", 0], ["move", 1200, "tap", [[3, 0, 1]]], ["end", 95000, "cleared"]]
+}
+```
+
+各イベントは `[種類, 計時の経過ミリ秒, ...]` の配列です。
+
+| 種類 | 続く値 | 内容 |
+| --- | --- | --- |
+| `start` | — | READY の OK |
+| `pause` | — | 一時停止（READY に戻る） |
+| `move` | 出どころ、変わった辺 | 盤面の変化はすべてこれで記録する。出どころは `tap`・`stroke`（なぞりの最初）・`stroke-more`（同じなぞりの続き）・`hint`（ヒントの書き込み）・`undo`・`redo`・`reset`。変わった辺は `[辺, 前の状態, 後の状態]` の配列で、変わった辺を先頭から順に当てると盤面を再現できる |
+| `hint` | 段階、内容 | 段階は `1`〜`3`。内容は定石の ID、`MISTAKE`、`REVEAL` |
+| `assist` | 段階 | アシストの切り替え（`0`〜`2`） |
+| `tool` | 書き込むもの | `line` か `cross` |
+| `zoom` | — | 長押しの拡大 |
+| `end` | 結果 | `cleared` か `abandoned`。最後のイベント |
+
+- イベントは 3,000 件まで。超えた分は記録せず `truncated` を真にする（`end` だけは加える）
+- `outcome` は `cleared`（クリア）か `abandoned`（盤面を変えたあと、解かずに次の問題へ移った）。盤面を一度も変えなかった試行は送らない
+- サーバーは形式と値域、シードコードと版・難易度の一致を検証する。盤面は再生成しない（ランキングに使わないため。読む側が再生成して照合する）
+- 同じ `playId` の再送は成功とし、上書きしない。新規の登録は ID ごとに 1 時間で 60 件まで。超えたら `429`
+- 応答は `{ status }`（`created` か `duplicate`）
+- イベントの種類は足すだけにし、既存の種類の意味を変えない。送られた古いログを読めるようにするため
+
+### 感想
+
+[`DESIGN.md`](./DESIGN.md) 20.2 の感想です。形式の正本は `src/core/feedback.ts` です。
+
+`POST /api/feedback` の本文:
+
+```json
+{
+  "body": "感想の本文",
+  "context": {
+    "from": "clear",
+    "playId": "UUID",
+    "seedCode": "NYORO:n1:easy:...",
+    "difficulty": "easy",
+    "cleared": true,
+    "elapsedSeconds": 120,
+    "hintsUsed": 0,
+    "maxAssist": 2,
+    "appVersion": "0.0.0+a44dd3f"
+  }
+}
+```
+
+- `body` は前後の空白を除いて 1〜1,000 文字（コードポイント）
+- `from` は `menu` か `clear`。盤面がないときは `playId`・`seedCode`・`difficulty`・`maxAssist` を `null` にする
+- ID ごとに 1 時間で 5 件まで。超えたら `429 too_many`
+- 応答は `{ status: "created" }`。サーバーから感想を読み返す API はない
+- 端末は送った感想を `nyoro-rin.sent-feedback.v1` に `{ version: 1, sent: [{ sentAt, body }] }` として新しい順に 20 件残す
+
 ### 退会
 
-退会は kan-game.app のアカウント画面で行い、ID 基盤が NYORO-RIN の `GameService.deleteAccount` を呼びます。NYORO-RIN はその ID を `deleted_accounts` に記録し、同じトランザクションで完了記録・プロフィール・ランキングの記録・投稿制限の情報を削除します。退会後の ID の Cookie は `410 id_deleted` で断ります。端末のローカル履歴は削除しません。
+退会は kan-game.app のアカウント画面で行い、ID 基盤が NYORO-RIN の `GameService.deleteAccount` を呼びます。NYORO-RIN はその ID を `deleted_accounts` に記録し、同じトランザクションで完了記録・プロフィール・ランキングの記録・投稿制限の情報・プレイログ・感想を削除します。退会後の ID の Cookie は `410 id_deleted` で断ります。端末のローカル履歴は削除しません。
 
 kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）として登録する必要があります。
 
 ## D1
 
-最初のマイグレーションで、以下の表を作ります。列の詳細はマイグレーションを正とします。
+以下の表を作ります（`0001_initial.sql` と `0002_play_logs_feedback.sql`）。列の詳細はマイグレーションを正とします。
 
 | 表                    | 内容                                                    |
 | --------------------- | ------------------------------------------------------- |
@@ -190,6 +274,8 @@ kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）とし�
 | `first_ranked_plays`  | 問題別ランキングの初回。主キーは `(account_id, puzzle_id)` |
 | `deleted_accounts`    | 退会した ID                                             |
 | `rate_limits`         | 投稿制限                                                |
+| `play_logs`           | プレイログ。主キーは `(account_id, play_id)`。イベントの JSON と、受け取ったときに数えた手数・ヒントの段階数・最長の間隔など |
+| `feedback`            | 感想と、送ったときの様子                                |
 
 D1 のスキーマ変更はマイグレーションを足して行い、適用済みのマイグレーションを書き換えません。マイグレーションは新しい Worker より先に適用します。
 
@@ -207,3 +293,5 @@ D1 のスキーマ変更はマイグレーションを足して行い、適用�
 10. 公開の応答にアカウント ID・`playId`・正解を含めない
 11. 退会でその ID の記録だけが消え、以後の Cookie は断られる
 12. ID がなくてもローカルでプレイ・保存・ヒントが使える
+13. プレイログの `move` を順に当てると、元に戻す・やり直す・リセットを含めて、プレイヤーが見た盤面に戻る
+14. プレイログと感想は、退会でその ID の分だけ消える。同じ `playId` のプレイログの再送は重複しない

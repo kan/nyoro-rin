@@ -3,23 +3,42 @@
  * The menu: everything that is not playing the board lives here, so the
  * play screen stays the board and a few buttons.
  */
-import { ref } from "vue";
+import { ref, shallowRef, watch } from "vue";
 import { type DifficultyChoice } from "../core/difficulty-choice";
-import { type Difficulty } from "../core/model";
+import { type FeedbackContext } from "../core/feedback";
+import { type LeaderboardEntry } from "../core/leaderboard";
+import { type Difficulty, type Puzzle } from "../core/model";
+import { puzzleId } from "../core/puzzle-identity";
 import { type SeedCode, parseSeedCode } from "../core/seed-code";
 import { type ResultHistory } from "../core/results";
 import { type AssistLevel, type Settings } from "../core/settings";
+import AccountPanel from "./AccountPanel.vue";
+import FeedbackPanel from "./FeedbackPanel.vue";
+import LeaderboardList from "./LeaderboardList.vue";
 import RecordsPanel from "./RecordsPanel.vue";
 import UiIcon from "./UiIcon.vue";
 import { DIFFICULTY_CHOICE_LABELS } from "./labels";
 import { useModalDialog } from "./modal-dialog";
+import type { Online } from "./use-online";
 
-type MenuPage = "top" | "new" | "records" | "seed" | "settings" | "help";
+export type MenuPage =
+  | "top"
+  | "new"
+  | "records"
+  | "ranking"
+  | "account"
+  | "feedback"
+  | "seed"
+  | "settings"
+  | "help";
 
 const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   top: "メニュー",
   new: "新しい問題",
   records: "成績",
+  ranking: "この問題のランキング",
+  account: "アカウント",
+  feedback: "感想を送る",
   seed: "シード",
   settings: "設定",
   help: "遊び方",
@@ -34,6 +53,12 @@ const props = defineProps<{
   choice: DifficultyChoice;
   history: ResultHistory;
   currentPlayId?: string;
+  /** The board on screen, for its ranking. */
+  puzzle?: Puzzle;
+  online: Online;
+  feedbackContext: FeedbackContext;
+  /** The page the menu opens at; the top by default. */
+  initialPage?: MenuPage;
 }>();
 
 const settings = defineModel<Settings>("settings", { required: true });
@@ -56,7 +81,7 @@ const { onCancel, onDialogClick } = useModalDialog(
   () => props.open,
   () => emit("close"),
   () => {
-    page.value = "top";
+    page.value = props.initialPage ?? "top";
     recordsDifficulty.value = props.difficulty ?? "easy";
     seedInput.value = "";
     seedError.value = "";
@@ -77,6 +102,27 @@ const ASSIST_OPTIONS: readonly {
     note: "さらに、使える定石がある場所を光らせる",
   },
 ];
+
+/** The board's ranking: undefined while asked, null when it failed. */
+const ranking = shallowRef<readonly LeaderboardEntry[] | null>();
+
+async function loadRanking(): Promise<void> {
+  ranking.value = undefined;
+  const board = props.puzzle;
+  if (!board) {
+    ranking.value = null;
+    return;
+  }
+  const entries = await props.online.fetchLeaderboard(await puzzleId(board));
+  if (props.puzzle === board) ranking.value = entries ?? null;
+}
+
+watch(
+  () => [page.value, props.open] as const,
+  ([shown, open]) => {
+    if (open && shown === "ranking") void loadRanking();
+  },
+);
 
 function update<K extends keyof Settings>(key: K, value: Settings[K]): void {
   settings.value = { ...settings.value, [key]: value };
@@ -143,6 +189,15 @@ async function copySeed(): Promise<void> {
         <button type="button" @click="page = 'records'">
           <UiIcon name="records" />成績
         </button>
+        <button type="button" @click="page = 'ranking'">
+          <UiIcon name="records" />この問題のランキング
+        </button>
+        <button type="button" @click="page = 'account'">
+          <UiIcon name="settings" />アカウント
+        </button>
+        <button type="button" @click="page = 'feedback'">
+          <UiIcon name="help" />感想を送る
+        </button>
         <button type="button" @click="page = 'seed'">
           <UiIcon name="seed" />シード
         </button>
@@ -177,6 +232,35 @@ async function copySeed(): Promise<void> {
           :history="history"
           :current-play-id="currentPlayId"
         />
+      </section>
+
+      <section v-else-if="page === 'ranking'" class="menu-page">
+        <p class="note">
+          この問題を解いた人の、最初のクリアの成績です。名前を決めて公開に同意すると載ります。
+        </p>
+        <p v-if="ranking === undefined" class="note">
+          ランキングを取得しています…
+        </p>
+        <p v-else-if="ranking === null" class="note">
+          ランキングを取得できません。通信状態を確認して、開き直してください。
+        </p>
+        <LeaderboardList v-else :entries="ranking" />
+        <button
+          v-if="!online.profile.value"
+          type="button"
+          class="text-button"
+          @click="page = 'account'"
+        >
+          名前を決めてランキングに参加する
+        </button>
+      </section>
+
+      <section v-else-if="page === 'account'" class="menu-page">
+        <AccountPanel :online="online" />
+      </section>
+
+      <section v-else-if="page === 'feedback'" class="menu-page">
+        <FeedbackPanel :online="online" :context="feedbackContext" />
       </section>
 
       <section v-else-if="page === 'seed'" class="menu-page">

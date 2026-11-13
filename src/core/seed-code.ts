@@ -32,6 +32,31 @@ export function encodeSeedCode(code: SeedCode): string {
   return `${PREFIX}:${code.version}:${code.difficulty}:${encodeURIComponent(code.seed)}`;
 }
 
+/** The longest seed code a record may carry; a real one is far shorter. */
+export const MAX_SEED_CODE_LENGTH = 512;
+
+/**
+ * Whether a record's seed code is exactly as encodeSeedCode writes it (no
+ * padding: stored codes are compared as text) and names this version and
+ * difficulty.
+ */
+export function isSeedCodeOf(
+  value: unknown,
+  version: unknown,
+  difficulty: unknown,
+): value is string {
+  if (typeof value !== "string" || value.length > MAX_SEED_CODE_LENGTH) {
+    return false;
+  }
+  const code = parseSeedCode(value);
+  return (
+    code !== undefined &&
+    encodeSeedCode(code) === value &&
+    code.version === version &&
+    code.difficulty === difficulty
+  );
+}
+
 /**
  * Reads a code a player typed or pasted; surrounding spaces are ignored.
  * Only the form encodeSeedCode writes is accepted, so one board has one

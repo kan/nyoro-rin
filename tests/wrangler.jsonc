@@ -1,0 +1,14 @@
+{
+  // The D1 the Worker tests run against: in memory (getPlatformProxy with
+  // persist: false), never a remote database.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "nyoro-rin-test",
+  "compatibility_date": "2026-09-15",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nyoro-test",
+      "database_id": "00000000-0000-4000-8000-000000000000",
+    },
+  ],
+}

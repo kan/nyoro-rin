@@ -202,6 +202,21 @@ export function hintStepEdits(hint: Hint, step: HintStep): EdgeEdit[] {
 }
 
 /**
+ * What a hint is about, as the play log names it: the technique's ID, or
+ * MISTAKE or REVEAL (src/core/play-log.ts).
+ */
+export function hintLabel(hint: Hint): string {
+  switch (hint.kind) {
+    case "move":
+      return hint.move.technique;
+    case "mistake":
+      return "MISTAKE";
+    case "reveal":
+      return "REVEAL";
+  }
+}
+
+/**
  * Records a hint step shown (DATA_CONTRACT.md 「段階と記録の値」): a hint
  * counts once, at its first step; later steps only raise the maximum; the
  * line a reveal shows at step 2 counts as a reveal too (DESIGN.md 11.4).

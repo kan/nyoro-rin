@@ -12,7 +12,14 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "measure": "tsx scripts/measure-generator.ts"
+    "measure": "tsx scripts/measure-generator.ts",
+    "stats": "tsx scripts/stats.ts",
+    "cf-typegen": "wrangler types --strict-vars=false",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "db:migrate:dev": "wrangler d1 migrations apply DB --env dev --remote",
+    "db:migrate:production": "wrangler d1 migrations apply DB --env production --remote",
+    "deploy:dev": "npm run build && npm run db:migrate:dev && wrangler deploy --env dev",
+    "deploy:production": "npm run build && npm run db:migrate:production && wrangler deploy --env production"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -22,7 +29,8 @@
     "typescript": "^6.0.3",
     "vite": "^8.3.8",
     "vitest": "^5.1.0",
-    "vue-tsc": "^3.3.14"
+    "vue-tsc": "^3.3.14",
+    "wrangler": "^4.158.0"
   },
   "dependencies": {
     "vue": "^3.5.45"

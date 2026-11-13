@@ -830,6 +830,119 @@ dialog::backdrop {
   min-width: 7.5em;
 }
 
+/* --- online: rankings, the account and feedback (DESIGN.md chapter 20) --- */
+
+.leaderboard {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.leaderboard li {
+  display: grid;
+  grid-template-columns: 2em 1fr auto;
+  align-items: baseline;
+  gap: 0 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.leaderboard li.self {
+  background: rgb(var(--color-surface-rgb) / 60%);
+  font-weight: 700;
+}
+
+.leaderboard .rank {
+  text-align: right;
+}
+
+.leaderboard .name {
+  overflow-wrap: anywhere;
+}
+
+.leaderboard .detail {
+  grid-column: 2 / -1;
+  color: var(--color-ink-soft);
+}
+
+.assist-mark {
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--color-rule);
+  border-radius: 999px;
+}
+
+.clear-ranking {
+  display: grid;
+  gap: 4px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.account,
+.account-setup,
+.feedback {
+  display: grid;
+  gap: 8px;
+}
+
+.account-name {
+  margin: 0;
+  font-weight: 700;
+}
+
+.account-setup input,
+.feedback textarea {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: 10px;
+  background: var(--color-surface);
+  font: inherit;
+  color: inherit;
+}
+
+.feedback textarea {
+  resize: vertical;
+}
+
+.feedback .counter {
+  text-align: right;
+}
+
+.sent-feedback {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-small);
+}
+
+.sent-feedback p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sent-feedback .when {
+  color: var(--color-ink-soft);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;

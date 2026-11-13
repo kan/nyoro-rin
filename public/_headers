@@ -1,0 +1,10 @@
+# The headers the screen (Workers Static Assets) returns. The API sets its own
+# (src/worker/index.ts).
+/*
+  Content-Security-Policy: frame-ancestors 'none'; base-uri 'none'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# The development environment stays out of search engines (as TAKO-SEN and pujan).
+https://nyoro-dev.kan-game.app/*
+  X-Robots-Tag: noindex

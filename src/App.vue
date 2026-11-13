@@ -13,13 +13,15 @@ import {
   watch,
 } from "vue";
 import { type DifficultyChoice } from "./core/difficulty-choice";
+import { type FeedbackContext, type FeedbackSource } from "./core/feedback";
 import { completedPlay } from "./core/results";
 import { type SeedCode } from "./core/seed-code";
 import { type Tool } from "./core/settings";
 import BoardView, { type BoardPointerEvent } from "./ui/BoardView.vue";
 import DifficultyDialog from "./ui/DifficultyDialog.vue";
 import HintPanel from "./ui/HintPanel.vue";
-import MenuDialog from "./ui/MenuDialog.vue";
+import LeaderboardList from "./ui/LeaderboardList.vue";
+import MenuDialog, { type MenuPage } from "./ui/MenuDialog.vue";
 import UiIcon from "./ui/UiIcon.vue";
 import {
   LONG_PRESS_MS,
@@ -34,10 +36,16 @@ import { DIFFICULTY_CHOICE_LABELS, DIFFICULTY_LABELS } from "./ui/labels";
 import { useDifficultyChoice } from "./ui/use-difficulty-choice";
 import { usePlay } from "./ui/use-play";
 import { useHint } from "./ui/use-hint";
+import { useOnline } from "./ui/use-online";
 import { useSettings } from "./ui/use-settings";
 
 const settings = useSettings();
-const play = usePlay(settings, { onClear: showClear });
+const online = useOnline();
+const play = usePlay(settings, {
+  onClear: showClear,
+  onPlayLog: online.recordPlayLog,
+  appVersion: __APP_VERSION__,
+});
 const hint = useHint(play);
 const difficulty = useDifficultyChoice();
 const { puzzle, board, geometry, annotations, inside, loop, solved, loading } =
@@ -86,7 +94,26 @@ const clearedPlay = computed(() =>
 function showClear(): void {
   zoom.value = undefined;
   clearPhase.value = "lap";
+  const cleared = clearedPlay.value;
+  if (cleared && puzzle.value) void online.recordClear(cleared, puzzle.value);
 }
+
+/** What the feedback screen sends with the text (DESIGN.md 20.2). */
+const feedbackContext = computed<FeedbackContext>(() => {
+  const attempt = play.attempt.value;
+  const shown = puzzle.value;
+  return {
+    from: feedbackFrom.value,
+    playId: attempt?.playId ?? null,
+    seedCode: shown ? play.seedCode.value : null,
+    difficulty: shown?.difficulty ?? null,
+    cleared: solved.value,
+    elapsedSeconds: play.elapsedSeconds.value,
+    hintsUsed: attempt?.hintsUsed ?? 0,
+    maxAssist: attempt?.maxAssist ?? null,
+    appVersion: __APP_VERSION__,
+  };
+});
 
 /** The lap ended, or a tap on the board cut it short. */
 function endLap(): void {
@@ -126,9 +153,17 @@ function onVisibilityChange(): void {
   if (document.visibilityState === "hidden") suspend();
 }
 
+/** The menu's page when it opens; the clear card opens it at a page. */
+const menuPage = ref<MenuPage>("top");
+/** Where the feedback screen was opened from, sent with the feedback. */
+const feedbackFrom = ref<FeedbackSource>("menu");
+
 /** A dialog over the board stops the clock while it is open. */
-function openPanel(name: Panel): void {
+function openPanel(name: Panel, page: MenuPage = "top"): void {
   holdClock();
+  menuPage.value = page;
+  feedbackFrom.value =
+    page === "feedback" && clearPhase.value === "card" ? "clear" : "menu";
   panel.value = name;
 }
 
@@ -226,6 +261,7 @@ function openZoom(center: BoardPoint): void {
   if (!gesture || gesture.hasMoved) return;
   endGesture();
   zoom.value = zoomWindowAt(geometry.value, center);
+  play.noteZoom();
   if (settings.value.haptics) navigator.vibrate?.(12);
 }
 
@@ -270,6 +306,7 @@ async function begin(start: () => Promise<boolean>): Promise<void> {
   resumeOnClose = false;
   zoom.value = undefined;
   clearPhase.value = undefined;
+  online.forgetClear();
   await start();
 }
 
@@ -445,6 +482,37 @@ onBeforeUnmount(() => {
                 <dd>{{ formatScore(clearedPlay) }}</dd>
               </div>
             </dl>
+            <!-- The board's ranking from the answer to the upload. -->
+            <div class="clear-ranking" aria-live="polite">
+              <p
+                v-if="online.clearRanking.value?.status === 'sending'"
+                class="note"
+              >
+                記録を送っています…
+              </p>
+              <p
+                v-else-if="online.clearRanking.value?.status === 'offline'"
+                class="note"
+              >
+                記録はこの端末に保存しました。通信できるようになったら送ります。
+              </p>
+              <template
+                v-else-if="online.clearRanking.value?.status === 'ready'"
+              >
+                <LeaderboardList
+                  :entries="online.clearRanking.value.entries"
+                  :limit="3"
+                />
+                <button
+                  v-if="!online.profile.value"
+                  type="button"
+                  class="text-button"
+                  @click="openPanel('menu', 'account')"
+                >
+                  名前を決めると、次の問題からランキングに載ります
+                </button>
+              </template>
+            </div>
             <div class="clear-actions">
               <select
                 :value="difficulty.choice.value"
@@ -470,6 +538,9 @@ onBeforeUnmount(() => {
               </button>
               <button type="button" @click="clearPhase = undefined">
                 盤面を見る
+              </button>
+              <button type="button" @click="openPanel('menu', 'feedback')">
+                感想を送る
               </button>
             </div>
           </section>
@@ -597,6 +668,10 @@ onBeforeUnmount(() => {
       :choice="difficulty.choice.value"
       :history="play.history.value"
       :current-play-id="play.attempt.value?.playId"
+      :puzzle="puzzle"
+      :online="online"
+      :feedback-context="feedbackContext"
+      :initial-page="menuPage"
       @close="closePanel"
       @new-puzzle="requestNew"
       @load-seed="loadSeed"

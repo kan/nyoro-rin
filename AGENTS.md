@@ -65,7 +65,7 @@ Cloudflare 固有の処理をパズルのコアロジックへ持ち込まない
 
 ## ローカルでの開発サーバー
 
-kan-game.app の ID 基盤（kan/game の `wrangler dev`）、API（`wrangler dev`）、画面（`vite`）は `scripts/dev.mjs` が一括で起動します。`scripts/dev.mjs` は TAKO-SEN のものを移植して用意します。
+kan-game.app の ID 基盤（kan/game の `wrangler dev`）、API（`wrangler dev`）、画面（`vite`）は `scripts/dev.mjs` が一括で起動します。`scripts/dev.mjs` は TAKO-SEN のものを移植したものです。
 
 | コマンド           | 用途                                                                                                 |
 | ------------------ | ---------------------------------------------------------------------------------------------------- |
@@ -76,10 +76,10 @@ kan-game.app の ID 基盤（kan/game の `wrangler dev`）、API（`wrangler de
   - 理由: ポートを固定すると、他のプロジェクトの開発サーバーと衝突します。`roji run` は空いているポートを選び、決まった URL を付けます。
   - roji が使えるかは、`command -v roji` が成功し、`roji health` が「正常」を返すことで確かめます。
   - 開く URL は、起動時に出る `roji: https://... -> localhost:<ポート>` の行か `roji routes` で確かめてください。roji のドメインは環境ごとに違うので、URL を決め打ちしないでください。
-- roji が入っていない、または動いていない環境では、`npm run dev:all` を使ってください。画面のポートは 5173 に固定で、使用中なら起動に失敗します。別のポートへ移すと、`.dev.vars` の `ALLOWED_ORIGINS` にない origin になり、API が `403` を返すためです。
+- roji が入っていない、または動いていない環境では、`npm run dev:all` を使ってください。画面のポートは 5173 に固定で、使用中なら起動に失敗します。別のポートへ移すと、`scripts/dev.mjs` が API と ID 基盤へ渡す `ALLOWED_ORIGINS` から外れ、`403` が返るためです。
 - API と ID 基盤のポートは、起動のたびに空いているものを選びます。API のポートは Vite の `/api` の転送先へ環境変数 `NYORO_API_PORT` で、ID 基盤のポータルの URL は `VITE_KAN_GAME_PORTAL` で渡します。ポートを決め打ちしないでください。
-- roji を通す場合、`scripts/dev.mjs` は roji が付けた URL の origin を `ALLOWED_ORIGINS` として API と ID 基盤へ渡します。`.dev.vars` に roji の URL を書き足さないでください。
-- 初回と、マイグレーションを足した後は、起動の前に `npx wrangler d1 migrations apply nyoro-local --local` を実行してください。初回は `npm run build` も済ませてください。API の `wrangler dev` は `dist` がないと起動しません。
+- `scripts/dev.mjs` は、画面の origin（roji を通す場合は roji が付けた URL の origin も）を `ALLOWED_ORIGINS` として API と ID 基盤へ渡します。`.dev.vars` に origin を書き足さないでください。
+- 初回と、マイグレーションを足した後は、起動の前に `npm run db:migrate` を実行してください。初回は `npm run build` も済ませてください。API の `wrangler dev` は `dist` がないと起動しません。
 
 ### ローカルの ID 基盤
 
@@ -90,6 +90,19 @@ kan-game.app の ID 基盤（kan/game の `wrangler dev`）、API（`wrangler de
 - 記録はローカルの D1（`nyoro-local`）に、ID と名前は kan/game のローカルの D1 に入ります。
 - 退会の連携には、kan/game 側に NYORO-RIN の GameService の binding（`GAME_NYORO`）が必要です。kan/game の変更は、このリポジトリの作業とは別に利用者へ確認してください。
 
+## プレイログと感想
+
+遊んだ人のプレイログ（`docs/DESIGN.md` 20.1）と感想（20.2）は、集計 CLI の `npm run stats` で読みます。管理画面は作りません。読んで直す候補をまとめる手順は `.claude/skills/playlog-review/SKILL.md` にあります。
+
+- `npm run stats` は SELECT だけを実行し、D1 に書き込みません。
+- **`--env dev` と `--env production` はリモートの D1 を読みます。実行する前に利用者の承認を得てください。** `--env local`（既定）は承認なしで実行して構いません。
+- **この repo は公開しています。** issue・コミット・PR に、感想の本文や ID の一部、`playId` を載せないでください。感想は要約し、個人を特定できる内容を落としてください。
+- プレイログの形式を変えるときは、`docs/DATA_CONTRACT.md` の「プレイログ」を先に変えてください。送られた古いログも読めるように、イベントの種類は足すだけにし、既存の種類の意味を変えないでください。
+
+## デプロイ
+
+手順は [`docs/DEPLOY.md`](docs/DEPLOY.md) にあります。デプロイ、リモートの D1 への操作（作成、マイグレーション、SELECT 以外のクエリ）は、利用者の承認を得てから行ってください。
+
 ## アーキテクチャ
 
 パズルロジックは Vue、DOM、Cloudflare Workers、永続化、表示処理から独立させます。
@@ -98,11 +111,12 @@ kan-game.app の ID 基盤（kan/game の `wrangler dev`）、API（`wrangler de
 
 ```text
 src/
-  core/       盤面モデル・ルール・Solver・Logical Solver・定石・Generator・難易度・アシストの導出・成績・タイマー・保存・同期キュー
-  ui/         入力判定（タップ・なぞり・長押し・拡大）・ヒント表示補助・各画面のコンポーネント・盤面生成用の Web Worker
-  worker/     Cloudflare Workers の API（認証・履歴・プロフィール・ランキング・GameService）
+  core/       盤面モデル・ルール・Solver・Logical Solver・定石・Generator・難易度・アシストの導出・成績・タイマー・保存・同期キュー・プレイログ・感想
+  ui/         入力判定（タップ・なぞり・長押し・拡大）・ヒント表示補助・各画面のコンポーネント・盤面生成用の Web Worker・ID とオンライン処理
+  worker/     Cloudflare Workers の API（認証・履歴・プロフィール・ランキング・プレイログ・感想・GameService）
   App.vue     画面表示と操作の連携
 migrations/   D1 のマイグレーション
+scripts/      ローカルの開発サーバー・Generator の計測・プレイログと感想の集計
 docs/
   DESIGN.md          ゲームルールと設計原則の正本
   DATA_CONTRACT.md   問題ID・保存データ・API・DB の契約
@@ -144,7 +158,7 @@ Vue コンポーネントは主に以下を担当します。
 
 ### Worker
 
-`src/worker/` に、認証・完了記録の同期・プロフィール・問題別ランキングの API と、ID 基盤から呼ばれる GameService を置きます。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
+`src/worker/` に、認証・完了記録の同期・プロフィール・問題別ランキング・プレイログ・感想の API と、ID 基盤から呼ばれる GameService を置きます。`src/worker/id-token.ts` と `src/worker/id-rpc.ts`、`tests/kan-game/` と `tests/id-token-vectors.json` は kan/game からの写しです。書き換えず、kan/game が変わったら写し直してください。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
 
 Worker は薄く保ちます。パズルの判定（盤面の再生成・問題 ID の計算・輪と正解の照合）は Core を呼び、Worker 側で再実装しないでください。
 

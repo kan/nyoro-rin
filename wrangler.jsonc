@@ -1,0 +1,107 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // The top level is for local development (`npm run dev:all`); env.dev and
+  // env.production are the deployed ones (DESIGN.md chapter 21,
+  // docs/DEPLOY.md).
+  "name": "nyoro-local",
+  "compatibility_date": "2026-09-15",
+  "main": "./src/worker/main.ts",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nyoro-local",
+      "migrations_dir": "migrations",
+    },
+  ],
+  // The kan-game.app ID platform (kan/game). /api/id/* is passed to it, and
+  // names are registered through its RPC (src/worker/id-rpc.ts).
+  "services": [{ "binding": "ID", "service": "kan-game-local" }],
+  // 3:00 in Japan: deletes again any record a withdrawn ID wrote while it
+  // was being deleted (src/worker/accounts.ts). Keep src/worker/index.ts
+  // SWEEP_CRON the same.
+  "triggers": { "crons": ["0 18 * * *"] },
+  "vars": {
+    // The ID cookie and the keys that verify it (kan/game docs/ID_DESIGN.md
+    // 「ID と Cookie」). Locally the keys are kan/game's own (its .dev.vars),
+    // which scripts/dev.mjs passes in.
+    "ID_COOKIE_NAME": "__Secure-kgdev_id",
+    "ID_ISSUER": "localhost",
+    "ID_PUBLIC_KEYS": "[]",
+  },
+  "secrets": {
+    // scripts/dev.mjs passes the screen's origin.
+    "required": ["ALLOWED_ORIGINS"],
+  },
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true },
+  },
+  "env": {
+    // `npm run deploy:dev`.
+    "dev": {
+      "name": "nyoro-dev",
+      "routes": [
+        { "pattern": "nyoro-dev.kan-game.app", "custom_domain": true },
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nyoro-dev",
+          // Filled in when the database is created (docs/DEPLOY.md).
+          "database_id": "REPLACE_WITH_NYORO_DEV_DATABASE_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
+      // kan/game's development Worker, which calls back GameService
+      // (src/worker/game-service.ts) when a player withdraws.
+      "services": [{ "binding": "ID", "service": "kan-game-dev" }],
+      "triggers": { "crons": ["0 18 * * *"] },
+      "vars": {
+        // Must match kan/game's env.dev (its wrangler.jsonc).
+        "ID_COOKIE_NAME": "__Secure-kgdev_id",
+        "ID_ISSUER": "dev.kan-game.app",
+        // JSON array of public JWKs, each with kid. To rotate, follow
+        // kan/game docs/ID_DESIGN.md「鍵の管理」 and copy its new list here.
+        "ID_PUBLIC_KEYS": "[{\"kid\":\"2026-10-18-2515ed\",\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"0KpEL8A2l9DupwZ2uVJVr_ZGy-sRbGJcJg-2Wwi8McU\",\"y\":\"yMVIO135BT3klr-T0Xtr4cRkdkAvfkwxAMaTzoH5EC4\"}]",
+        // Not a secret here: the deployed origin is public.
+        "ALLOWED_ORIGINS": "https://nyoro-dev.kan-game.app",
+      },
+      // Not inherited from the top level; nothing is secret here.
+      "secrets": { "required": [] },
+    },
+    // `npm run deploy:production`.
+    "production": {
+      "name": "nyoro",
+      "routes": [{ "pattern": "nyoro.kan-game.app", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nyoro-prod",
+          // Filled in when the database is created (docs/DEPLOY.md).
+          "database_id": "REPLACE_WITH_NYORO_PROD_DATABASE_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
+      // kan/game's production Worker, which calls back GameService when a
+      // player withdraws.
+      "services": [{ "binding": "ID", "service": "kan-game" }],
+      "triggers": { "crons": ["0 18 * * *"] },
+      "vars": {
+        // Must match kan/game's env.production (its wrangler.jsonc).
+        "ID_COOKIE_NAME": "__Secure-kg_id",
+        "ID_ISSUER": "kan-game.app",
+        // JSON array of public JWKs, each with kid. To rotate, follow
+        // kan/game docs/ID_DESIGN.md「鍵の管理」 and copy its new list here.
+        "ID_PUBLIC_KEYS": "[{\"kid\":\"2026-10-18-ccfc63\",\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"ddT7jKLdotzN141EdW32MjeKrySOCqm_OGKRbA27NBY\",\"y\":\"UR7l_tKX9mUzRzJElH_IFWQ36a0PggvU803FVXI_yqk\"}]",
+        "ALLOWED_ORIGINS": "https://nyoro.kan-game.app",
+      },
+      "secrets": { "required": [] },
+    },
+  },
+}

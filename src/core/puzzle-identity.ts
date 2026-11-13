@@ -18,6 +18,11 @@ export function canonicalPuzzleDefinition(
   ]);
 }
 
+/** Whether a value has the form of a puzzle ID. */
+export function isPuzzleId(value: unknown): value is string {
+  return typeof value === "string" && /^p1:[0-9a-f]{64}$/.test(value);
+}
+
 /** `p1:<SHA-256 hex>`. Refuses a board with bad clues or not exactly one solution. */
 export async function puzzleId(
   puzzle: Pick<Puzzle, "generatorVersion" | "size" | "clues">,

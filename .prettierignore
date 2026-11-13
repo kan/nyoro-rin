@@ -1,4 +1,6 @@
 dist/
 package-lock.json
+# `npm run cf-typegen` で生成する
+worker-configuration.d.ts
 # 設計文書は手で整えている。表の桁揃えを書き換えない
 docs/
