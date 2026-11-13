@@ -47,7 +47,12 @@ import {
   saveResultHistory,
   startPlay,
 } from "../core/results";
-import { cellsInsideLoop, isSolved } from "../core/rules";
+import {
+  cellsInsideLoop,
+  isSolved,
+  lineEdges,
+  loopVertices,
+} from "../core/rules";
 import { type SeedCode, encodeSeedCode } from "../core/seed-code";
 import { type Settings } from "../core/settings";
 import { PuzzleGenerator, randomSeed } from "./puzzle-generation";
@@ -155,6 +160,16 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   const inside = computed(() =>
     solved.value && puzzle.value
       ? cellsInsideLoop(geometry.value, puzzle.value.solution)
+      : undefined,
+  );
+
+  /**
+   * The finished loop's vertices in walking order, for the snake. Taken from
+   * the player's lines, since the snake is drawn in their place.
+   */
+  const loop = computed(() =>
+    solved.value
+      ? loopVertices(geometry.value, lineEdges(board.value.states))
       : undefined,
   );
 
@@ -418,6 +433,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     geometry,
     annotations,
     inside,
+    loop,
     solved,
     playable,
     waiting,

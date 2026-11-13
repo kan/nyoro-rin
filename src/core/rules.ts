@@ -1,4 +1,4 @@
-import { type BoardGeometry } from "./board";
+import { type BoardGeometry, edgeBetween } from "./board";
 import {
   CROSS,
   LINE,
@@ -276,6 +276,39 @@ export function cellsInsideLoop(
     inside[cell] = states[left] === LINE ? 1 - outsideOfLeft : outsideOfLeft;
   }
   return inside;
+}
+
+/**
+ * The vertices of a loop in the order a walk along it meets them (the snake's
+ * lap, DESIGN.md chapter 10, starts where this walk starts). The walk starts
+ * at the top-left vertex of the loop and goes clockwise: that vertex is a
+ * corner with an edge to the right, and the walk takes that edge first. The
+ * first vertex is not repeated at the end.
+ */
+export function loopVertices(
+  geometry: BoardGeometry,
+  loop: readonly number[],
+): number[] {
+  if (loop.length === 0) return [];
+  const states = statesFromLines(geometry, loop);
+  let start = geometry.vertexCount;
+  for (const edge of loop) {
+    start = Math.min(start, ...geometry.edgeVertices[edge]);
+  }
+  const order: number[] = [];
+  let vertex = start;
+  let edge = edgeBetween(geometry, start, start + 1);
+  while (edge !== undefined) {
+    order.push(vertex);
+    const [a, b] = geometry.edgeVertices[edge];
+    vertex = a === vertex ? b : a;
+    if (vertex === start) break;
+    const came: number = edge;
+    edge = geometry.vertexEdges[vertex].find(
+      (candidate) => candidate !== came && states[candidate] === LINE,
+    );
+  }
+  return order;
 }
 
 /** The clue of every cell, given the loop. */

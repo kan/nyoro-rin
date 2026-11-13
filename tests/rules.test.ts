@@ -5,6 +5,8 @@ import {
   findConflicts,
   isSolved,
   lineEdges,
+  loopAroundCells,
+  loopVertices,
 } from "../src/core/rules";
 import {
   cell,
@@ -113,6 +115,47 @@ describe("conflicts (DESIGN.md 6.2)", () => {
     expect(findConflicts(geometry, fullClues, states(loop.slice(2)))).toEqual(
       [],
     );
+  });
+});
+
+describe("loop vertices (DESIGN.md chapter 10)", () => {
+  const v = (row: number, col: number) => vertexIndex(7, row, col);
+
+  it("walks the loop clockwise from its top-left vertex", () => {
+    expect(loopVertices(geometry, rectangleLoop(1, 1, 2, 2))).toEqual([
+      v(1, 1),
+      v(1, 2),
+      v(1, 3),
+      v(2, 3),
+      v(3, 3),
+      v(3, 2),
+      v(3, 1),
+      v(2, 1),
+    ]);
+  });
+
+  it("follows a loop that turns inward", () => {
+    // An L of three cells: (0, 0), (1, 0) and (1, 1).
+    const loop = loopAroundCells(
+      geometry,
+      Uint8Array.from({ length: 49 }, (_, i) =>
+        i === cell(0, 0) || i === cell(1, 0) || i === cell(1, 1) ? 1 : 0,
+      ),
+    );
+    expect(loopVertices(geometry, loop)).toEqual([
+      v(0, 0),
+      v(0, 1),
+      v(1, 1),
+      v(1, 2),
+      v(2, 2),
+      v(2, 1),
+      v(2, 0),
+      v(1, 0),
+    ]);
+  });
+
+  it("returns nothing for no loop", () => {
+    expect(loopVertices(geometry, [])).toEqual([]);
   });
 });
 

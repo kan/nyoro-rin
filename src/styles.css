@@ -311,16 +311,25 @@ button.primary {
   opacity: 1;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .board-frame.solved .lines line {
-    animation: loop-closed 1.4s ease-out;
-  }
+/* --- the snake on the cleared loop (DESIGN.md chapter 10) ------------------ */
+
+.snake-body {
+  fill: none;
+  stroke: var(--color-loop);
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-@keyframes loop-closed {
-  35% {
-    stroke-width: 0.22;
-  }
+.snake-head ellipse {
+  fill: var(--color-loop);
+}
+
+.snake-head .eye {
+  fill: #fff;
+}
+
+.snake-head .pupil {
+  fill: var(--color-ink);
 }
 
 /* --- the magnified view ----------------------------------------------------- */
@@ -376,6 +385,12 @@ button.primary {
   border: 1px solid var(--color-rule);
   border-radius: 14px;
   box-shadow: 0 12px 30px -16px rgb(0 0 0 / 40%);
+}
+
+.clear-icon {
+  justify-self: center;
+  width: 56px;
+  height: 56px;
 }
 
 .clear-card h2 {

@@ -40,13 +40,15 @@ const settings = useSettings();
 const play = usePlay(settings, { onClear: showClear });
 const hint = useHint(play);
 const difficulty = useDifficultyChoice();
-const { puzzle, board, geometry, annotations, inside, solved, loading } = play;
+const { puzzle, board, geometry, annotations, inside, loop, solved, loading } =
+  play;
 
 /** The dialog open over the board, if any; one at a time. */
 type Panel = "menu" | "difficulty";
 const panel = ref<Panel>();
 const zoom = ref<ZoomWindow>();
-const clearCardOpen = ref(false);
+/** After a clear: the snake going round the loop, then the card. */
+const clearPhase = ref<"lap" | "card">();
 const confirmDialog = ref<HTMLDialogElement>();
 const confirmOpen = ref(false);
 const readyButton = ref<HTMLButtonElement>();
@@ -77,9 +79,18 @@ const clearedPlay = computed(() =>
   completedPlay(play.history.value, play.attempt.value?.playId),
 );
 
+/**
+ * The loop closed: the snake goes once round it, then the card comes
+ * (DESIGN.md chapter 10).
+ */
 function showClear(): void {
   zoom.value = undefined;
-  clearCardOpen.value = true;
+  clearPhase.value = "lap";
+}
+
+/** The lap ended, or a tap on the board cut it short. */
+function endLap(): void {
+  if (clearPhase.value === "lap") clearPhase.value = "card";
 }
 
 // --- the clock --------------------------------------------------------------
@@ -146,6 +157,7 @@ function endGesture(): void {
 }
 
 function onPress(event: BoardPointerEvent, inZoom: boolean): void {
+  endLap();
   if (!play.playable.value) return;
   stopLongPress();
   gesture = new BoardGesture(geometry.value, event.point, {
@@ -227,7 +239,8 @@ function onKeydown(event: KeyboardEvent): void {
   const dialogOpen = panel.value !== undefined || confirmDialog.value?.open;
   // READY is modal too: what it covers ignores the key.
   if (event.key !== "Escape" || dialogOpen || readyShown.value) return;
-  if (zoom.value) closeZoom();
+  if (clearPhase.value === "lap") endLap();
+  else if (zoom.value) closeZoom();
   else if (hint.open.value) hint.close();
 }
 
@@ -256,7 +269,7 @@ function requestStart(start: () => Promise<boolean>): void {
 async function begin(start: () => Promise<boolean>): Promise<void> {
   resumeOnClose = false;
   zoom.value = undefined;
-  clearCardOpen.value = false;
+  clearPhase.value = undefined;
   await start();
 }
 
@@ -366,7 +379,7 @@ onBeforeUnmount(() => {
     </header>
 
     <main class="board-area" :inert="readyShown">
-      <div class="board-frame" :class="{ busy: loading, solved }">
+      <div class="board-frame" :class="{ busy: loading }">
         <BoardView
           v-if="puzzle"
           :geometry="geometry"
@@ -374,9 +387,12 @@ onBeforeUnmount(() => {
           :states="board.states"
           :annotations="annotations"
           :inside="inside"
+          :loop="loop"
+          :lap="clearPhase === 'lap'"
           :label="`NYORO-RIN ${puzzle.size}×${puzzle.size} の盤面`"
           :hint="hint.marks.value"
           v-bind="mainBoardHandlers"
+          @lap-end="endLap"
         />
 
         <div
@@ -407,12 +423,13 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="clearCardOpen" class="clear-overlay">
+        <div v-if="clearPhase === 'card'" class="clear-overlay">
           <section
             class="clear-card"
             role="status"
             aria-labelledby="clear-title"
           >
+            <img class="clear-icon" src="/nyoro.svg" alt="" />
             <h2 id="clear-title">輪が閉じました</h2>
             <dl v-if="clearedPlay" class="stats">
               <div>
@@ -451,7 +468,7 @@ onBeforeUnmount(() => {
               <button type="button" class="primary" @click="next">
                 <UiIcon name="next" />次の問題
               </button>
-              <button type="button" @click="clearCardOpen = false">
+              <button type="button" @click="clearPhase = undefined">
                 盤面を見る
               </button>
             </div>

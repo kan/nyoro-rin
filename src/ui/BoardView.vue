@@ -15,6 +15,7 @@ import { type BoardAnnotations } from "../core/annotations";
 import { CROSS, LINE, type Clue, type EdgeStates } from "../core/model";
 import { type BoardPoint, type ZoomWindow, fullWindow } from "./board-input";
 import { type HintMarks } from "./hint-view";
+import SnakeLoop from "./SnakeLoop.vue";
 
 const props = defineProps<{
   geometry: BoardGeometry;
@@ -23,6 +24,13 @@ const props = defineProps<{
   annotations: BoardAnnotations;
   /** Cells inside the finished loop, shaded once the board is cleared. */
   inside?: Uint8Array;
+  /**
+   * The vertices of the finished loop in walking order: the snake takes
+   * the place of the lines (DESIGN.md chapter 10).
+   */
+  loop?: readonly number[];
+  /** Whether the snake is going round the loop now. */
+  lap?: boolean;
   /** The part to show; the whole board by default. */
   view?: ZoomWindow;
   /** What the open hint points at (src/ui/hint-view.ts). */
@@ -43,6 +51,7 @@ const emit = defineEmits<{
   drag: [event: BoardPointerEvent];
   release: [];
   cancel: [];
+  lapEnd: [];
 }>();
 
 const CROSS_ARM = 0.11;
@@ -106,6 +115,13 @@ const lines = computed(() => {
   });
   return result;
 });
+
+const snakePoints = computed(() =>
+  props.loop?.map((vertex) => {
+    const { row, col } = vertices.value[vertex];
+    return { x: col, y: row };
+  }),
+);
 
 function crossPath(edge: number, arm: number): string {
   const { x1, y1, x2, y2 } = edgeEnds(edge);
@@ -288,7 +304,7 @@ function onPointerCancel(event: PointerEvent): void {
     </g>
     <path class="cross auto" :d="autoCrosses" />
     <path class="cross" :d="playerCrosses" />
-    <g class="lines">
+    <g v-if="!snakePoints?.length" class="lines">
       <line
         v-for="line in lines"
         :key="line.edge"
@@ -350,5 +366,12 @@ function onPointerCancel(event: PointerEvent): void {
         :r="annotations.conflictVertices.has(item.vertex) ? 0.13 : 0.055"
       />
     </g>
+    <!-- Over the vertices: the body hides the dots it lies on. -->
+    <SnakeLoop
+      v-if="snakePoints?.length"
+      :points="snakePoints"
+      :lap="lap"
+      @lap-end="emit('lapEnd')"
+    />
   </svg>
 </template>
