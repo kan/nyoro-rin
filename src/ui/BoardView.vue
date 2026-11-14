@@ -12,7 +12,13 @@ import {
   vertexPosition,
 } from "../core/board";
 import { type BoardAnnotations } from "../core/annotations";
-import { CROSS, LINE, type Clue, type EdgeStates } from "../core/model";
+import {
+  CROSS,
+  LINE,
+  type Clue,
+  type EdgeState,
+  type EdgeStates,
+} from "../core/model";
 import { type BoardPoint, type ZoomWindow, fullWindow } from "./board-input";
 import { type HintMarks } from "./hint-view";
 import SnakeLoop from "./SnakeLoop.vue";
@@ -35,8 +41,16 @@ const props = defineProps<{
   view?: ZoomWindow;
   /** What the open hint points at (src/ui/hint-view.ts). */
   hint?: HintMarks;
+  /** The edge a press would tap, while the finger is still down. */
+  tapPreview?: TapPreview;
   label: string;
 }>();
+
+/** An edge about to be tapped and what the tap makes of it (DESIGN.md 7.2). */
+export interface TapPreview {
+  readonly edge: number;
+  readonly after: EdgeState;
+}
 
 export interface BoardPointerEvent {
   readonly point: BoardPoint;
@@ -156,6 +170,17 @@ const guideShapes = computed(() => {
       vertex,
       ...vertexPosition(size, vertex),
     })),
+  };
+});
+
+/** The tap's edge and, pale, the line or × it will become. */
+const tapShape = computed(() => {
+  const preview = props.tapPreview;
+  if (!preview) return undefined;
+  return {
+    ...edgeEnds(preview.edge),
+    line: preview.after === LINE,
+    cross: preview.after === CROSS ? crossPath(preview.edge, CROSS_ARM) : "",
   };
 });
 
@@ -314,6 +339,26 @@ function onPointerCancel(event: PointerEvent): void {
         :x2="line.x2"
         :y2="line.y2"
       />
+    </g>
+    <!-- The tap to come: a pale band along the edge, and the line or × it
+         becomes; nothing changes until the finger lifts (DESIGN.md 7.2). -->
+    <g v-if="tapShape" class="tap-preview">
+      <line
+        class="tap-band"
+        :x1="tapShape.x1"
+        :y1="tapShape.y1"
+        :x2="tapShape.x2"
+        :y2="tapShape.y2"
+      />
+      <line
+        v-if="tapShape.line"
+        class="tap-line"
+        :x1="tapShape.x1"
+        :y1="tapShape.y1"
+        :x2="tapShape.x2"
+        :y2="tapShape.y2"
+      />
+      <path v-if="tapShape.cross" class="tap-cross" :d="tapShape.cross" />
     </g>
     <!-- The hint draws over the marks but leaves the clues readable:
          frames go around the clue, never across it (DESIGN.md 9.2). -->

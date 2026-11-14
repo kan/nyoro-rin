@@ -4,12 +4,22 @@
  * rankings and the feedback. Everything here may fail without stopping
  * play: the board, the hints and the local records never wait on it.
  */
-import { onScopeDispose, readonly, ref, shallowRef, watch } from "vue";
+import {
+  computed,
+  onScopeDispose,
+  readonly,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
 import {
   type AccountProfile,
   RANKING_CONSENT_VERSION,
+  hasCachedProfile,
   loadCachedProfile,
+  loadInviteSeen,
   saveCachedProfile,
+  saveInviteSeen,
 } from "../core/account-profile";
 import {
   type FeedbackContext,
@@ -72,6 +82,9 @@ export function useOnline() {
   });
 
   const profile = ref<AccountProfile | null>(null);
+  /** The ID whose profile the API answered for; until then none is known. */
+  const profileCheckedFor = ref<string | null>(null);
+  const inviteSeen = ref(loadInviteSeen(storage));
   const clearRanking = shallowRef<ClearRanking>();
   /** The puzzle whose ranking the clear card waits for. */
   let clearedPuzzleId: string | undefined;
@@ -233,6 +246,7 @@ export function useOnline() {
       };
       profile.value = body.profile ?? null;
       saveCachedProfile(account, profile.value, storage);
+      profileCheckedFor.value = account;
     } catch {
       // The cached profile stands until the next answer.
     }
@@ -262,6 +276,25 @@ export function useOnline() {
     }
   }
 
+  /**
+   * Whether to invite the player to choose a name: once per device, and only
+   * when the API has said this ID has no name for NYORO-RIN yet (in this
+   * visit or, through the cached answer, an earlier one). Before any answer
+   * it waits, so a later visit can still show it.
+   */
+  const inviteDue = computed(
+    () =>
+      !inviteSeen.value &&
+      id.value !== null &&
+      profileCheckedFor.value === id.value &&
+      profile.value === null,
+  );
+
+  function dismissInvite(): void {
+    inviteSeen.value = true;
+    saveInviteSeen(storage);
+  }
+
   // --- feedback -----------------------------------------------------------------
 
   async function sendFeedback(
@@ -289,6 +322,8 @@ export function useOnline() {
     id,
     (account) => {
       profile.value = account ? loadCachedProfile(account, storage) : null;
+      profileCheckedFor.value =
+        account && hasCachedProfile(account, storage) ? account : null;
       if (!account) return;
       // Records queued for another ID are not sent for this one.
       plays.keepOnly(account);
@@ -312,6 +347,8 @@ export function useOnline() {
     name,
     status,
     profile: readonly(profile),
+    inviteDue,
+    dismissInvite,
     clearRanking,
     sentFeedback,
     recordClear,

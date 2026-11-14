@@ -14,10 +14,15 @@ import {
 } from "vue";
 import { type DifficultyChoice } from "./core/difficulty-choice";
 import { type FeedbackContext, type FeedbackSource } from "./core/feedback";
+import { type EdgeState } from "./core/model";
+import { tappedState } from "./core/play";
 import { completedPlay } from "./core/results";
 import { type SeedCode } from "./core/seed-code";
 import { type Tool } from "./core/settings";
-import BoardView, { type BoardPointerEvent } from "./ui/BoardView.vue";
+import BoardView, {
+  type BoardPointerEvent,
+  type TapPreview,
+} from "./ui/BoardView.vue";
 import DifficultyDialog from "./ui/DifficultyDialog.vue";
 import HintPanel from "./ui/HintPanel.vue";
 import LeaderboardList from "./ui/LeaderboardList.vue";
@@ -30,6 +35,7 @@ import {
   panZoomWindow,
   zoomWindowAt,
 } from "./ui/board-input";
+import { portalUrl } from "./ui/auth";
 import { BoardGesture } from "./ui/gesture";
 import { formatScore, formatSeconds } from "./ui/format";
 import { DIFFICULTY_CHOICE_LABELS, DIFFICULTY_LABELS } from "./ui/labels";
@@ -72,14 +78,52 @@ const readyShown = computed(
   () => play.waiting.value && panel.value === undefined && !confirmOpen.value,
 );
 
+/**
+ * The invitation to the ranking takes the place of the first READY of the
+ * visit, once per device (DESIGN.md chapter 20). Whether it does is decided
+ * once, when OK can first be pressed: a READY on screen is never swapped
+ * for it, where a press meant for OK would land on the invitation. Shown or
+ * not, it never comes up at a pause.
+ */
+const invite = ref<boolean>();
+watch(
+  [readyShown, loading],
+  ([shown, making]) => {
+    if (shown && !making && invite.value === undefined) {
+      invite.value = online.inviteDue.value;
+    }
+  },
+  { immediate: true },
+);
+watch(play.running, (running) => {
+  if (running) invite.value = false;
+});
+const inviteShown = computed(
+  () => readyShown.value && invite.value === true && online.inviteDue.value,
+);
+const inviteButton = ref<HTMLButtonElement>();
+const inviteText = computed(() => {
+  const shared = online.name.value;
+  const lead = shared
+    ? `kan-game.app のほかのゲームで決めたプレイヤー名「${shared}」で、NYORO-RIN のランキングにも参加できます。`
+    : "プレイヤー名を決めると、問題ごとのランキングに成績が載ります。";
+  return `${lead}名前を決めなくても遊べます。あとからメニューの「アカウント」でも設定できます。`;
+});
+const recoveryUrl = portalUrl("/account");
+
+function joinRanking(): void {
+  online.dismissInvite();
+  openPanel("menu", "account");
+}
+
 // OK takes the focus once it can be pressed: READY also waits out the
 // making of the next board, with OK disabled meanwhile.
-watch([readyShown, loading], async ([shown, making]) => {
+watch([readyShown, loading, inviteShown], async ([shown, making, invite]) => {
   if (!shown) return;
   zoom.value = undefined;
-  if (making) return;
   await nextTick();
-  readyButton.value?.focus();
+  if (invite) inviteButton.value?.focus();
+  else if (!making) readyButton.value?.focus();
 });
 
 /** The record of the board on screen, once it is cleared. */
@@ -176,6 +220,15 @@ function closePanel(): void {
 
 let gesture: BoardGesture | undefined;
 let gestureInZoom = false;
+/** The edge the press would tap, shown pale until it is released. */
+const tapEdge = ref<number>();
+/** What the tap would make of it, from the board as it is now. */
+const tapPreview = computed<TapPreview | undefined>(() => {
+  const edge = tapEdge.value;
+  if (edge === undefined) return undefined;
+  const current = board.value.states[edge] as EdgeState;
+  return { edge, after: tappedState(current, settings.value.tool) };
+});
 let pan: { clientX: number; clientY: number; window: ZoomWindow } | undefined;
 let longPress: ReturnType<typeof setTimeout> | undefined;
 
@@ -189,6 +242,7 @@ function endGesture(): void {
   play.endStroke();
   gesture = undefined;
   pan = undefined;
+  tapEdge.value = undefined;
 }
 
 function onPress(event: BoardPointerEvent, inZoom: boolean): void {
@@ -200,14 +254,15 @@ function onPress(event: BoardPointerEvent, inZoom: boolean): void {
     inZoom,
   });
   gestureInZoom = inZoom;
+  tapEdge.value = gesture.tapEdge;
+  pan = undefined;
   if (gesture.kind === "pan" && zoom.value) {
     pan = {
       clientX: event.clientX,
       clientY: event.clientY,
       window: zoom.value,
     };
-  } else {
-    pan = undefined;
+  } else if (gesture.kind !== "tap") {
     play.beginStroke();
   }
   if (!inZoom) {
@@ -219,7 +274,10 @@ function onPress(event: BoardPointerEvent, inZoom: boolean): void {
 function onDrag(event: BoardPointerEvent, inZoom: boolean): void {
   if (!gesture || inZoom !== gestureInZoom) return;
   const edges = gesture.move(event.point);
-  if (gesture.hasMoved) stopLongPress();
+  if (gesture.hasMoved) {
+    stopLongPress();
+    tapEdge.value = undefined;
+  }
   if (pan && gesture.hasMoved) {
     zoom.value = panZoomWindow(
       geometry.value,
@@ -428,6 +486,7 @@ onBeforeUnmount(() => {
           :lap="clearPhase === 'lap'"
           :label="`NYORO-RIN ${puzzle.size}×${puzzle.size} の盤面`"
           :hint="hint.marks.value"
+          :tap-preview="tapPreview"
           v-bind="mainBoardHandlers"
           @lap-end="endLap"
         />
@@ -446,6 +505,7 @@ onBeforeUnmount(() => {
               :view="zoom"
               label="拡大した盤面"
               :hint="hint.marks.value"
+              :tap-preview="tapPreview"
               v-bind="zoomBoardHandlers"
             />
             <button
@@ -633,6 +693,38 @@ onBeforeUnmount(() => {
 
     <div v-if="readyShown" class="ready-overlay" role="presentation">
       <section
+        v-if="inviteShown"
+        class="ready-card invite-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invite-title"
+        aria-describedby="invite-text"
+      >
+        <img class="clear-icon" src="/nyoro.svg" alt="" />
+        <h2 id="invite-title">ランキングに参加しませんか？</h2>
+        <p id="invite-text" class="note">{{ inviteText }}</p>
+        <div class="ready-actions">
+          <button
+            ref="inviteButton"
+            type="button"
+            class="primary"
+            @click="joinRanking"
+          >
+            参加する
+          </button>
+          <button type="button" @click="online.dismissInvite">あとで</button>
+        </div>
+        <a
+          class="note"
+          :href="recoveryUrl"
+          target="_blank"
+          rel="noopener"
+          @click="online.dismissInvite"
+          >別の端末の ID を使う（復旧コード）</a
+        >
+      </section>
+      <section
+        v-else
         class="ready-card"
         role="dialog"
         aria-modal="true"

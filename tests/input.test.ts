@@ -46,6 +46,36 @@ describe("gestures (DESIGN.md 7.2-7.4)", () => {
     expect(gesture.release()).toBe(edge("h 3 2"));
   });
 
+  it("knows the tapped edge from the press, before release", () => {
+    const gesture = new BoardGesture(geometry, { x: 4.1, y: 1.4 }, line);
+    expect(gesture.tapEdge).toBe(edge("v 1 4"));
+    expect(gesture.release()).toBe(edge("v 1 4"));
+  });
+
+  it("taps nothing right on a vertex, where no one edge is meant", () => {
+    const onVertex = new BoardGesture(geometry, { x: 2.05, y: 3.1 }, line);
+    expect(onVertex.tapEdge).toBeUndefined();
+    expect(onVertex.release()).toBeUndefined();
+    const nearEnd = new BoardGesture(geometry, { x: 2.3, y: 3.05 }, line);
+    expect(nearEnd.tapEdge).toBe(edge("h 3 2"));
+  });
+
+  it("calls the tap off when the finger moves away", () => {
+    const gesture = new BoardGesture(geometry, { x: 2.5, y: 3 }, line);
+    expect(gesture.tapEdge).toBe(edge("h 3 2"));
+    gesture.move({ x: 2.5, y: 3.4 });
+    expect(gesture.hasMoved).toBe(true);
+    expect(gesture.release()).toBeUndefined();
+  });
+
+  it("draws no line from a press that starts off a vertex", () => {
+    const gesture = new BoardGesture(geometry, { x: 1.5, y: 1 }, line);
+    expect(gesture.kind).toBe("tap");
+    expect(gesture.move({ x: 2, y: 1 })).toEqual([]);
+    expect(gesture.move({ x: 3, y: 1 })).toEqual([]);
+    expect(gesture.release()).toBeUndefined();
+  });
+
   it("turns a line stroke into the edges between the vertices passed", () => {
     const gesture = new BoardGesture(geometry, { x: 1, y: 1 }, line);
     expect(gesture.move({ x: 1.5, y: 1 })).toEqual([]);

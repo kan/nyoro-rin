@@ -4,7 +4,22 @@
  * from its src/core/account-profile.ts), so a name taken in one game fits
  * another.
  */
-import type { KeyValueStorage } from "./storage";
+import { type KeyValueStorage, readJson, writeJson } from "./storage";
+
+/** Whether the first-visit invitation to the ranking was shown (DESIGN.md 20). */
+const INVITE_KEY = "nyoro-rin.ranking-invite.v1";
+
+export function loadInviteSeen(storage: KeyValueStorage): boolean {
+  return (
+    readJson(storage, INVITE_KEY, (value) =>
+      value === true ? true : undefined,
+    ) ?? false
+  );
+}
+
+export function saveInviteSeen(storage: KeyValueStorage): boolean {
+  return writeJson(storage, INVITE_KEY, true);
+}
 
 /** The version of the consent text the screen shows. */
 export const RANKING_CONSENT_VERSION = 1;
@@ -44,6 +59,20 @@ export function loadCachedProfile(
       : null;
   } catch {
     return null;
+  }
+}
+
+/** Whether the API answered for this ID before: `null` saved means no name. */
+export function hasCachedProfile(
+  accountId: string,
+  storage: KeyValueStorage,
+): boolean {
+  try {
+    return (
+      storage.getItem(`nyoro-rin.account-profile.v1:${accountId}`) !== null
+    );
+  } catch {
+    return false;
   }
 }
 

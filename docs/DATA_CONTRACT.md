@@ -46,6 +46,7 @@
 | `nyoro-rin.sent-feedback.v1` | 送った感想（`version: 1`、新しい順に 20 件） |
 | `nyoro-rin.kan-game-id.v1`   | ID 基盤が最後に確かめた ID（認証情報ではない） |
 | `nyoro-rin.account-profile.v1:<ID>` | ID ごとのプレイヤー名と同意の写し（表示用） |
+| `nyoro-rin.ranking-invite.v1` | ランキングへの参加の案内を出したか（JSON の `true`。DESIGN.md 第 20 章） |
 
 プレイ中の状態には、以下を含めます。
 

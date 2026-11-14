@@ -3,9 +3,14 @@
  * means as edges, never as game rules: the caller decides what the edges
  * become (src/core/play.ts).
  *
- * - a press that does not move is a tap on the nearest edge
+ * - a press that does not move is a tap on the nearest edge, known from the
+ *   moment it starts (`tapEdge`) so the screen can show it before release;
+ *   a press right on a vertex taps nothing
+ * - a press that moves is never a tap: moving off is how a tap is called off
  * - with the line tool, or anywhere in the magnified view, a press that
  *   starts on a vertex and moves is a path through vertices
+ * - with the line tool on the board, a press that starts off a vertex and
+ *   moves does nothing
  * - with the × tool on the board, a press that moves sweeps edges
  * - in the magnified view, a press that starts off a vertex moves the view
  */
@@ -29,13 +34,18 @@ import {
 
 /** A press counts as starting on a vertex this close to it. */
 export const START_VERTEX_REACH = 0.42;
+/** A press this close to a vertex taps no edge (DESIGN.md 7.2). */
+export const TAP_VERTEX_DEAD_ZONE = 0.2;
 /** In the magnified view, a press this close to a vertex draws instead of moving the view. */
 export const ZOOM_START_VERTEX_REACH = 0.3;
 
-export type GestureKind = "path" | "sweep" | "pan";
+/** `tap`: a press that only counts if it does not move. */
+export type GestureKind = "path" | "sweep" | "pan" | "tap";
 
 export class BoardGesture {
   readonly kind: GestureKind;
+  /** The edge a release without moving would tap, if any. */
+  readonly tapEdge: number | undefined;
   private moved = false;
   private lastVertex: number | undefined;
   private readonly passed = new Set<number>();
@@ -50,8 +60,14 @@ export class BoardGesture {
       this.kind = this.lastVertex === undefined ? "pan" : "path";
     } else {
       this.lastVertex = nearestVertex(geometry, start, START_VERTEX_REACH);
-      this.kind = options.tool === "line" ? "path" : "sweep";
+      if (options.tool === "cross") this.kind = "sweep";
+      else this.kind = this.lastVertex === undefined ? "tap" : "path";
     }
+    // On a vertex up to four edges are about as near: no tap guesses one.
+    this.tapEdge =
+      nearestVertex(geometry, start, TAP_VERTEX_DEAD_ZONE) === undefined
+        ? nearestEdge(geometry, start, TAP_EDGE_REACH)
+        : undefined;
   }
 
   /** Whether the press has moved far enough to stop being a tap. */
@@ -67,7 +83,7 @@ export class BoardGesture {
     if (!this.moved && distance(point, this.start) > MOVE_THRESHOLD) {
       this.moved = true;
     }
-    if (!this.moved || this.kind === "pan") return [];
+    if (!this.moved || this.kind === "pan" || this.kind === "tap") return [];
     if (this.kind === "sweep") {
       const edge = nearestEdge(this.geometry, point, STROKE_EDGE_REACH);
       return edge === undefined ? [] : this.report([edge]);
@@ -83,8 +99,7 @@ export class BoardGesture {
 
   /** The tapped edge, when the press never moved. */
   release(): number | undefined {
-    if (this.moved) return undefined;
-    return nearestEdge(this.geometry, this.start, TAP_EDGE_REACH);
+    return this.moved ? undefined : this.tapEdge;
   }
 
   /**

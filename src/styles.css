@@ -246,6 +246,33 @@ button.primary {
   opacity: 0.45;
 }
 
+/* The tap to come (DESIGN.md 7.2): pale until the finger lifts. */
+.tap-preview {
+  pointer-events: none;
+}
+
+.tap-band {
+  stroke: var(--color-guide);
+  stroke-width: 0.3;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+
+.tap-line {
+  stroke: var(--color-loop);
+  stroke-width: 0.13;
+  stroke-linecap: round;
+  opacity: 0.45;
+}
+
+.tap-cross {
+  fill: none;
+  stroke: var(--color-ink-soft);
+  stroke-width: 0.045;
+  stroke-linecap: round;
+  opacity: 0.6;
+}
+
 /* The guide only lights a place; it stays under the clue and the marks. */
 .guide rect,
 .guide circle {
@@ -740,6 +767,21 @@ dialog::backdrop {
 
 .ready-card .note {
   margin: -8px 0 0;
+}
+
+/* The first visit's invitation to the ranking, in READY's place. */
+.invite-card {
+  gap: 14px;
+  text-align: center;
+}
+
+.ready-card.invite-card h2 {
+  font-size: 1.15rem;
+  letter-spacing: 0;
+}
+
+.ready-card.invite-card .note {
+  margin: 0;
 }
 
 /* One column, as wide as the longest button. */

@@ -14,7 +14,7 @@ import { type BoardPoint as Point } from "./board-input";
 const LOOK_BACK = 0.3;
 
 /** How long the lap takes, whatever the length of the loop. */
-export const LAP_MS = 2000;
+export const LAP_MS = 2600;
 
 /** The lap as a share of its time; it starts and stops gently. */
 export function lapEase(t: number): number {
