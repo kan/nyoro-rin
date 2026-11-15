@@ -8,7 +8,6 @@ import { type Ref, computed, ref } from "vue";
 import { type BoardGeometry } from "../core/board";
 import { type EdgeState, type EdgeStates } from "../core/model";
 import { tappedState } from "../core/play";
-import { type Tool } from "../core/settings";
 import { type BoardPointerEvent, type TapPreview } from "./BoardView.vue";
 import {
   LONG_PRESS_MS,
@@ -22,7 +21,6 @@ import { BoardGesture } from "./gesture";
 export interface BoardInputTarget {
   readonly geometry: Readonly<Ref<BoardGeometry>>;
   readonly states: Readonly<Ref<EdgeStates>>;
-  readonly tool: Readonly<Ref<Tool>>;
   /** Whether the board takes marks now. */
   readonly playable: Readonly<Ref<boolean>>;
   readonly haptics?: Readonly<Ref<boolean>>;
@@ -49,7 +47,7 @@ export function useBoardInput(target: BoardInputTarget) {
     const edge = tapEdge.value;
     if (edge === undefined) return undefined;
     const current = target.states.value[edge] as EdgeState;
-    return { edge, after: tappedState(current, target.tool.value) };
+    return { edge, after: tappedState(current) };
   });
   let pan: { clientX: number; clientY: number; window: ZoomWindow } | undefined;
   let longPress: ReturnType<typeof setTimeout> | undefined;
@@ -71,10 +69,7 @@ export function useBoardInput(target: BoardInputTarget) {
     target.onPress?.();
     if (!target.playable.value) return;
     stopLongPress();
-    gesture = new BoardGesture(target.geometry.value, event.point, {
-      tool: target.tool.value,
-      inZoom,
-    });
+    gesture = new BoardGesture(target.geometry.value, event.point, { inZoom });
     gestureInZoom = inZoom;
     tapEdge.value = gesture.tapEdge;
     pan = undefined;

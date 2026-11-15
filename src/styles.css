@@ -465,48 +465,23 @@ button.primary {
 
 /* --- controls under the board ------------------------------------------------ */
 
+/* Only the moves are left under the board since the × tool went (issue #6). */
 .controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: center;
 }
 
-.tool-switch {
-  display: inline-flex;
-  border: 1px solid var(--color-rule);
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.tool-switch button {
-  border: 0;
-  border-radius: 0;
-  min-width: 52px;
-  padding: 8px 7px;
-  font-weight: 700;
-}
-
-.tool-switch button[aria-pressed="true"] {
-  background: var(--color-ink);
-  color: var(--color-page);
-}
-
-/* Five buttons next to the tool switch still fit a 360px-wide phone; a
- * narrower one puts them on their own row. */
+/* Five buttons fit a 320px-wide phone in one row; a narrower one wraps them. */
 .actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 3px;
 }
 
 .actions .icon-button {
   width: 40px;
-}
-
-.controls {
-  flex-wrap: wrap;
 }
 
 /* --- dialogs ------------------------------------------------------------------ */

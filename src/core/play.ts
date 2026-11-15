@@ -1,5 +1,4 @@
 import { CROSS, LINE, UNKNOWN, type EdgeState, type EdgeStates } from "./model";
-import { type Tool } from "./settings";
 
 /** One edge changed by a move, with its state before and after. */
 export interface EdgeChange {
@@ -33,57 +32,44 @@ export function emptyPlayBoard(edgeCount: number): PlayBoard {
   return { states: new Uint8Array(edgeCount), undo: [], redo: [] };
 }
 
-/**
- * What a tap on an edge makes of it (DESIGN.md 7.2).
- * - line: unknown → line → × → unknown
- * - cross: unknown or line → × → unknown
- */
-export function tappedState(current: EdgeState, tool: Tool): EdgeState {
-  if (tool === "line") {
-    return current === UNKNOWN ? LINE : current === LINE ? CROSS : UNKNOWN;
-  }
-  return current === CROSS ? UNKNOWN : CROSS;
+/** What a tap on an edge makes of it: unknown → line → × → unknown (DESIGN.md 7.2). */
+export function tappedState(current: EdgeState): EdgeState {
+  return current === UNKNOWN ? LINE : current === LINE ? CROSS : UNKNOWN;
 }
 
 /**
- * Whether a stroke adds or erases, decided once by its first edge
+ * Whether a stroke draws or erases lines, decided once by its first edge
  * (DESIGN.md 7.3) and kept for the whole stroke.
  */
 export type StrokeMode = "add" | "erase";
 
-export function strokeMode(firstEdge: EdgeState, tool: Tool): StrokeMode {
-  return firstEdge === (tool === "line" ? LINE : CROSS) ? "erase" : "add";
+export function strokeMode(firstEdge: EdgeState): StrokeMode {
+  return firstEdge === LINE ? "erase" : "add";
 }
 
 /**
  * What a stroke makes of one edge it passes, or undefined to leave it.
- * - adding lines draws over × too: the player traced that edge on purpose
- * - adding × leaves lines alone, so a sweep across the board cannot wipe
- *   out drawn lines
- * - erasing clears only marks of the tool's own kind
+ * Drawing goes over × too, since the player traced that edge on purpose;
+ * erasing clears lines only.
  */
 export function strokedState(
   current: EdgeState,
-  tool: Tool,
   mode: StrokeMode,
 ): EdgeState | undefined {
-  const mark = tool === "line" ? LINE : CROSS;
-  if (mode === "erase") return current === mark ? UNKNOWN : undefined;
-  if (tool === "cross" && current === LINE) return undefined;
-  return current === mark ? undefined : mark;
+  if (mode === "erase") return current === LINE ? UNKNOWN : undefined;
+  return current === LINE ? undefined : LINE;
 }
 
 /** A stroke in progress: the board it began on and what it did so far. */
 export interface Stroke {
   readonly base: PlayBoard;
-  readonly tool: Tool;
   /** Set by the stroke's first edge (DESIGN.md 7.3). */
   readonly mode?: StrokeMode;
   readonly edits: readonly EdgeEdit[];
 }
 
-export function beginStroke(board: PlayBoard, tool: Tool): Stroke {
-  return { base: board, tool, edits: [] };
+export function beginStroke(board: PlayBoard): Stroke {
+  return { base: board, edits: [] };
 }
 
 /**
@@ -98,8 +84,8 @@ export function continueStroke(
   const edits = [...stroke.edits];
   for (const edge of edges) {
     const current = stateInStroke(stroke.base, edits, edge);
-    mode ??= strokeMode(current, stroke.tool);
-    const after = strokedState(current, stroke.tool, mode);
+    mode ??= strokeMode(current);
+    const after = strokedState(current, mode);
     if (after !== undefined) edits.push({ edge, after });
   }
   const next = { ...stroke, mode, edits };

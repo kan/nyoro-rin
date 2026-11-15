@@ -11,8 +11,6 @@ defineProps<{
     | "copy"
     | "clock"
     | "difficulty"
-    | "line"
-    | "cross"
     | "zoom"
     | "seed"
     | "settings"
@@ -62,16 +60,6 @@ defineProps<{
       v-else-if="name === 'difficulty'"
       d="M4 20v-5h3v5ZM10.5 20V9h3v11ZM17 20V3h3v17Z"
     />
-    <template v-else-if="name === 'line'">
-      <circle cx="4" cy="12" r="1.5" fill="currentColor" />
-      <path d="M5.5 12h13" stroke-width="3" />
-      <circle cx="20" cy="12" r="1.5" fill="currentColor" />
-    </template>
-    <template v-else-if="name === 'cross'">
-      <circle cx="4" cy="12" r="1.5" fill="currentColor" />
-      <path d="m9 9 6 6m0-6-6 6" />
-      <circle cx="20" cy="12" r="1.5" fill="currentColor" />
-    </template>
     <template v-else-if="name === 'zoom'">
       <circle cx="10" cy="10" r="7" />
       <path d="m15 15 6 6" />

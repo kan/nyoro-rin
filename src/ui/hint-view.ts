@@ -171,7 +171,7 @@ export function hintText(
     case "mistake":
       if (step === 1) return "今の線か × に誤りがあります。";
       if (step === 2) return "光っているあたりに誤りがあります。";
-      return `光っている${mistakeWord(hint)}が誤りです。`;
+      return `光っている${mistakeWord(hint)}が誤りです。もう一度ヒントを押すと消します。`;
     case "reveal":
       return step === 1
         ? "定石で説明できる一手が見つかりません。次のステップで正解の線を 1 本示します。"

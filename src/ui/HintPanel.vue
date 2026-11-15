@@ -12,8 +12,8 @@ defineProps<{
   /** Undefined when no hint was found. */
   step?: HintStep;
   hasNext: boolean;
-  /** Whether the next step writes the hint onto the board. */
-  nextWrites: boolean;
+  /** What the next press does: 次のステップ, 書き込む or 誤りを消す. */
+  nextLabel: string;
 }>();
 
 const emit = defineEmits<{ next: []; close: [] }>();
@@ -38,7 +38,7 @@ const emit = defineEmits<{ next: []; close: [] }>();
     </header>
     <p role="status">{{ text }}</p>
     <button v-if="hasNext" type="button" class="primary" @click="emit('next')">
-      {{ nextWrites ? "書き込む" : "次のステップ" }}
+      {{ nextLabel }}
     </button>
   </section>
 </template>

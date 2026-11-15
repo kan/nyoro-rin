@@ -233,16 +233,41 @@ export function hintStepEdits(hint: Hint, step: HintStep): EdgeEdit[] {
 }
 
 /**
- * The step after `step` and what showing it writes; undefined after the
- * last. Writing is a move, which ends the hint (DESIGN.md 11.2).
+ * What the next press of the hint button does: the step it shows and what
+ * it writes; undefined when the hint has nothing more. Writing is a move,
+ * which ends the hint (DESIGN.md 11.2). A mistake's step 3 shows the wrong
+ * marks, and the press after it takes them all off, still at step 3
+ * (DESIGN.md 11.3).
  */
 export function nextHintStep(
   hint: Hint,
   step: HintStep,
-): { step: HintStep; edits: EdgeEdit[] } | undefined {
+): HintPress | undefined {
+  if (hint.kind === "mistake" && step === LAST_HINT_STEP) {
+    return {
+      action: "erase",
+      step,
+      edits: [...hint.wrongLines, ...hint.wrongCrosses].map(
+        (edge): EdgeEdit => ({ edge, after: UNKNOWN }),
+      ),
+    };
+  }
   if (step >= LAST_HINT_STEP) return undefined;
   const next = (step + 1) as HintStep;
-  return { step: next, edits: hintStepEdits(hint, next) };
+  const edits = hintStepEdits(hint, next);
+  return { action: edits.length > 0 ? "write" : "step", step: next, edits };
+}
+
+/**
+ * One press of the hint button on an open hint:
+ * - step: shows the next step
+ * - write: shows the next step by writing it onto the board
+ * - erase: takes a mistake's wrong marks off, staying at step 3
+ */
+export interface HintPress {
+  readonly action: "step" | "write" | "erase";
+  readonly step: HintStep;
+  readonly edits: readonly EdgeEdit[];
 }
 
 /**

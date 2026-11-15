@@ -37,7 +37,7 @@ describe("positions to edges and vertices", () => {
 });
 
 describe("gestures (DESIGN.md 7.2-7.4)", () => {
-  const line = { tool: "line", inZoom: false } as const;
+  const line = { inZoom: false } as const;
 
   it("reports a press that does not move as a tap", () => {
     const gesture = new BoardGesture(geometry, { x: 2.5, y: 3 }, line);
@@ -98,30 +98,12 @@ describe("gestures (DESIGN.md 7.2-7.4)", () => {
     expect(gesture.move({ x: 2, y: 2 })).toEqual([]);
   });
 
-  it("sweeps edges with the × tool", () => {
-    const gesture = new BoardGesture(
-      geometry,
-      { x: 0, y: 0.2 },
-      { tool: "cross", inZoom: false },
-    );
-    expect(gesture.kind).toBe("sweep");
-    expect(gesture.move({ x: 0.02, y: 0.5 })).toEqual([edge("v 0 0")]);
-    expect(gesture.move({ x: 0, y: 1.5 })).toEqual([edge("v 1 0")]);
-  });
-
   it("in the magnified view, draws from a vertex and moves the view from elsewhere", () => {
-    const fromVertex = new BoardGesture(
-      geometry,
-      { x: 3, y: 3 },
-      { tool: "cross", inZoom: true },
-    );
+    const zoomed = { inZoom: true } as const;
+    const fromVertex = new BoardGesture(geometry, { x: 3, y: 3 }, zoomed);
     expect(fromVertex.kind).toBe("path");
     expect(fromVertex.move({ x: 4, y: 3 })).toEqual([edge("h 3 3")]);
-    const fromCell = new BoardGesture(
-      geometry,
-      { x: 3.5, y: 3.5 },
-      { tool: "line", inZoom: true },
-    );
+    const fromCell = new BoardGesture(geometry, { x: 3.5, y: 3.5 }, zoomed);
     expect(fromCell.kind).toBe("pan");
     expect(fromCell.move({ x: 5, y: 5 })).toEqual([]);
   });

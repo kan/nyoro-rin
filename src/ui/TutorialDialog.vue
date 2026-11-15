@@ -19,7 +19,7 @@ import {
   undoMove,
 } from "../core/play";
 import { cellsInsideLoop, lineEdges, loopVertices } from "../core/rules";
-import { type AssistLevel, type Tool } from "../core/settings";
+import { type AssistLevel } from "../core/settings";
 import {
   type TutorialStepId,
   canEdit,
@@ -153,8 +153,8 @@ const hintAvailable = computed(
 /** The step the hint button goes to next, if any. */
 function followingHint() {
   const open = shown.value;
-  if (!open?.hint || open.step >= lastHintStep(step.value)) return undefined;
-  return nextHintStep(open.hint, open.step);
+  const next = open?.hint && nextHintStep(open.hint, open.step);
+  return next && next.step <= lastHintStep(step.value) ? next : undefined;
 }
 const hintHasNext = computed(
   () => !shown.value?.hint || followingHint() !== undefined,
@@ -191,19 +191,18 @@ function editable(edge: number): boolean {
 
 function tap(edge: number): void {
   if (!playable.value || !editable(edge)) return;
-  const after = tappedState(board.value.states[edge] as EdgeState, "line");
+  const after = tappedState(board.value.states[edge] as EdgeState);
   setBoard(applyEdits(board.value, [{ edge, after }]));
 }
 
 const input = useBoardInput({
   geometry: computed(() => geometry),
   states: computed(() => board.value.states),
-  tool: ref<Tool>("line"),
   playable,
   zoomable: false,
   tap,
   beginStroke: () => {
-    stroke = beginStroke(board.value, "line");
+    stroke = beginStroke(board.value);
   },
   strokeEdges: (edges) => {
     if (!stroke) return;
@@ -242,8 +241,9 @@ function requestHint(): void {
   }
   const next = followingHint();
   if (!next) return;
-  if (next.edits.length > 0) setBoard(applyEdits(board.value, next.edits));
-  else shown.value = { hint: open.hint, step: next.step };
+  if (next.action === "step")
+    shown.value = { hint: open.hint, step: next.step };
+  else setBoard(applyEdits(board.value, next.edits));
 }
 
 function begin(): void {

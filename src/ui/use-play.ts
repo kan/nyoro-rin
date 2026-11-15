@@ -169,7 +169,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     elapsedTimerSeconds(timer.value, now.value),
   );
 
-  // Read apart, so that switching the tool does not derive everything again.
+  // Read apart, so that changing another setting does not derive everything again.
   const assist = computed(() => settings.value.assist);
   const showConflicts = computed(() => settings.value.showConflicts);
 
@@ -315,13 +315,6 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   function noteZoom(): void {
     if (playable.value) logEvent((t) => ["zoom", t]);
   }
-
-  watch(
-    () => settings.value.tool,
-    (tool) => {
-      if (playable.value) logEvent((t) => ["tool", t, tool]);
-    },
-  );
 
   // --- the clock --------------------------------------------------------------
 
@@ -470,17 +463,13 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     if (!playable.value) return;
     const current = board.value.states[edge] as EdgeState;
     setBoard(
-      applyEdits(board.value, [
-        { edge, after: tappedState(current, settings.value.tool) },
-      ]),
+      applyEdits(board.value, [{ edge, after: tappedState(current) }]),
       "tap",
     );
   }
 
   function beginStroke(): void {
-    stroke = playable.value
-      ? startStroke(board.value, settings.value.tool)
-      : undefined;
+    stroke = playable.value ? startStroke(board.value) : undefined;
   }
 
   /** Adds the edges a stroke passed; the whole stroke stays one move. */

@@ -20,8 +20,6 @@ export interface BoardPoint {
 export const TAP_EDGE_REACH = 0.5;
 /** A stroke passes a vertex within this distance of it (DESIGN.md 7.3). */
 export const STROKE_VERTEX_REACH = 0.36;
-/** A × stroke passes an edge this close to it. */
-export const STROKE_EDGE_REACH = 0.22;
 /** Moving this far from where the press began makes it a stroke. */
 export const MOVE_THRESHOLD = 0.25;
 

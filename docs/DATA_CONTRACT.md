@@ -91,7 +91,10 @@
 
 クリア履歴は `{ version: 1, userId, plays }` です。各要素は `playId`・シードコード・版・難易度・`startedAt`・`status`（`in-progress` か `completed`）を持ちます。`completed` には、上の試行の記録・`completedAt`・`elapsedSeconds` を加えます。`userId` は `nyoro-rin.user-id` と同じ値で、食い違うときは履歴の側を正とします。
 
-設定は `{ assist, showConflicts, tool, sound, haptics }` とします。`assist` は `0`（なし）・`1`（×を自動）・`2`（×＋ガイド）で、初期値は `2` です。`showConflicts` の初期値は `true`、`tool` は `"line"` か `"cross"` で初期値は `"line"` です。
+設定は `{ assist, showConflicts, sound, haptics }` とします。`assist` は `0`（なし）・`1`（×を自動）・`2`（×＋ガイド）で、初期値は `2` です。`showConflicts` の初期値は `true` です。
+
+- 「×印」モードを廃止する前（DESIGN.md 7.1）の設定には `tool`（`"line"` か `"cross"`）が残っています。読み込みでは無視し、ほかの値はそのまま使います。キーの版は上げません（項目を減らすだけで、新しい画面は古い値を読めるため）
+- 新しく保存する設定には `tool` を書きません
 
 難易度の選択は、JSON の文字列 `"easy"`・`"normal"`・`"hard"`・`"random"` のどれかです（DESIGN.md 13.7）。設定とは別のキーにします。盤面の難易度とは独立していて、盤面・シード・記録には `"random"` を使いません。
 
@@ -217,10 +220,10 @@ TAKO-SEN と違い、ミス数はありません。
 | `start` | — | READY の OK |
 | `pause` | — | 一時停止（READY に戻る） |
 | `move` | 出どころ、変わった辺 | 盤面の変化はすべてこれで記録する。出どころは `tap`・`stroke`（なぞりの最初）・`stroke-more`（同じなぞりの続き）・`hint`（ヒントの書き込み）・`undo`・`redo`・`reset`。変わった辺は `[辺, 前の状態, 後の状態]` の配列で、変わった辺を先頭から順に当てると盤面を再現できる |
-| `hint` | 段階、内容 | 段階は `1`〜`3`。内容は定石の ID、`MISTAKE`、`REVEAL` |
+| `hint` | 段階、内容 | 段階は `1`〜`3`。内容は定石の ID、`MISTAKE`、`REVEAL`。誤りのヒントの段階 3 のあとで誤った線と × を消したとき（DESIGN.md 11.3）は、`hint` を記録し直さず、出どころ `hint` の `move` だけを記録する（段階は 3 のまま、ヒントの回数も増えない） |
 | `no-hint` | 理由 | 解き終わっていない盤面で、ヒントのボタンでヒントが見つからなかった。ヒントの回数には数えない。理由は次の 3 つ: `ABORTED`（誤りの探索が Complete Solver の上限で打ち切られた）／`NO_WRONG_MARK`（解が無いのに、正解と食い違う線と × が無い）／`NO_OPEN_EDGE`（定石で進めず、示す正解の線も残っていない） |
 | `assist` | 段階 | アシストの切り替え（`0`〜`2`） |
-| `tool` | 書き込むもの | `line` か `cross` |
+| `tool` | 書き込むもの | `line` か `cross`。「×印」モードを廃止する前（DESIGN.md 7.1）のログにだけあり、新しくは記録しない。送られた古いログを読めるよう、受け付けは続ける |
 | `zoom` | — | 長押しの拡大 |
 | `end` | 結果 | `cleared` か `abandoned`。最後のイベント |
 

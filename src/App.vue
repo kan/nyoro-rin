@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The play screen: the board takes the space, with only the difficulty and
- * the menu above it and the tool switch and moves below it. Everything else
+ * the menu above it and the hint and moves below it. Everything else
  * is in the menu (src/ui/MenuDialog.vue).
  */
 import {
@@ -18,7 +18,6 @@ import { type FeedbackContext, type FeedbackSource } from "./core/feedback";
 import { completedPlay } from "./core/results";
 import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { type SeedCode } from "./core/seed-code";
-import { type Tool } from "./core/settings";
 import BoardView from "./ui/BoardView.vue";
 import DifficultyDialog from "./ui/DifficultyDialog.vue";
 import HintPanel from "./ui/HintPanel.vue";
@@ -73,7 +72,6 @@ const {
 } = useBoardInput({
   geometry,
   states: computed(() => board.value.states),
-  tool: computed(() => settings.value.tool),
   playable: play.playable,
   haptics: computed(() => settings.value.haptics),
   tap: play.tap,
@@ -250,10 +248,6 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 // --- moves and puzzles --------------------------------------------------
-
-function setTool(tool: Tool): void {
-  settings.value = { ...settings.value, tool };
-}
 
 /**
  * Starts another board. Leaving a board the player has worked on asks
@@ -535,34 +529,18 @@ onBeforeUnmount(() => {
     </main>
 
     <!-- The hint sits between the board and the controls: it never covers
-         the board, and undo and the tool stay at hand while reading it. -->
+         the board, and undo stays at hand while reading it. -->
     <HintPanel
       v-if="hint.open.value"
       :inert="readyShown"
       :text="hint.text.value"
       :step="hint.step.value"
       :has-next="hint.hasNext.value"
-      :next-writes="hint.nextWrites.value"
+      :next-label="hint.nextLabel.value"
       @next="hint.next"
       @close="hint.close"
     />
     <footer class="controls" :inert="readyShown">
-      <div class="tool-switch" role="group" aria-label="書き込むもの">
-        <button
-          type="button"
-          :aria-pressed="settings.tool === 'line'"
-          @click="setTool('line')"
-        >
-          <UiIcon name="line" />線
-        </button>
-        <button
-          type="button"
-          :aria-pressed="settings.tool === 'cross'"
-          @click="setTool('cross')"
-        >
-          <UiIcon name="cross" />×
-        </button>
-      </div>
       <div class="actions">
         <button
           type="button"

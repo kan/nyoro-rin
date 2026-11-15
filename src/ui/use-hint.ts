@@ -6,12 +6,20 @@
 import { computed, ref, shallowRef, watch } from "vue";
 import {
   type Hint,
+  type HintPress,
   type HintStep,
   nextHintStep,
   searchHint,
 } from "../core/hint";
 import { type HintMarks, hintMarks, hintText } from "./hint-view";
 import { type usePlay } from "./use-play";
+
+/** The hint panel's button for each kind of press. */
+const PRESS_LABELS: Readonly<Record<HintPress["action"], string>> = {
+  step: "次のステップ",
+  write: "書き込む",
+  erase: "誤りを消す",
+};
 
 interface ShownHint {
   /** Undefined when no hint was found. */
@@ -48,8 +56,10 @@ export function useHint(play: ReturnType<typeof usePlay>) {
 
   const hasNext = computed(() => following.value !== undefined);
 
-  /** Whether the next step writes the hint onto the board. */
-  const nextWrites = computed(() => (following.value?.edits.length ?? 0) > 0);
+  /** What the next press does, as its button says it. */
+  const nextLabel = computed(() =>
+    following.value ? PRESS_LABELS[following.value.action] : "",
+  );
 
   const text = computed(() => {
     const current = shown.value;
@@ -92,14 +102,16 @@ export function useHint(play: ReturnType<typeof usePlay>) {
     const hint = shown.value?.hint;
     const next = following.value;
     if (!hint || !next || !play.playable.value) return;
-    play.recordHintStep(hint, next.step);
-    if (next.edits.length > 0) play.applyHint(next.edits);
-    else shown.value = { hint, step: next.step };
+    // Taking a mistake's marks off stays at step 3: nothing new to record
+    // but the move itself (DATA_CONTRACT.md 「プレイログ」).
+    if (next.action !== "erase") play.recordHintStep(hint, next.step);
+    if (next.action === "step") shown.value = { hint, step: next.step };
+    else play.applyHint(next.edits);
   }
 
   function close(): void {
     open.value = false;
   }
 
-  return { open, step, text, marks, hasNext, nextWrites, request, next, close };
+  return { open, step, text, marks, hasNext, nextLabel, request, next, close };
 }

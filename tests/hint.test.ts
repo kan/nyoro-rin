@@ -103,8 +103,13 @@ describe("hint order (DESIGN.md 11.1)", () => {
 
   it("steps on to the writing, and no further", () => {
     const hint = findHint(geometry, easy, states())!;
-    expect(nextHintStep(hint, 1)).toEqual({ step: 2, edits: [] });
+    expect(nextHintStep(hint, 1)).toEqual({
+      action: "step",
+      step: 2,
+      edits: [],
+    });
     expect(nextHintStep(hint, 2)).toEqual({
+      action: "write",
       step: 3,
       edits: hintStepEdits(hint, 3),
     });
@@ -219,6 +224,24 @@ describe("mistakes (DESIGN.md 11.3)", () => {
   it("does not call right marks a mistake", () => {
     const board = states(easy.solution.slice(0, 3));
     expect(findHint(geometry, easy, board)?.kind).toBe("move");
+  });
+
+  it("takes every wrong mark off on the press after step 3, still at step 3", () => {
+    const right = easy.solution[1];
+    const board = states([offLoop, right], [onLoop]);
+    const hint = findHint(geometry, easy, board)!;
+    expect(nextHintStep(hint, 2)).toEqual({
+      action: "step",
+      step: 3,
+      edits: [],
+    });
+    const erase = nextHintStep(hint, 3)!;
+    expect(erase).toMatchObject({ action: "erase", step: 3 });
+    const played = { ...emptyPlayBoard(geometry.edgeCount), states: board };
+    const after = applyEdits(played, erase.edits).states;
+    expect([offLoop, onLoop, right].map((e) => after[e])).toEqual([0, 0, LINE]);
+    // Nothing wrong is left, so the next hint is a step again.
+    expect(findHint(geometry, easy, after)?.kind).toBe("move");
   });
 });
 

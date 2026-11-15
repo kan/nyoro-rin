@@ -29,7 +29,7 @@ import {
   isDifficulty,
 } from "./model";
 import { isSeedCodeOf } from "./seed-code";
-import { type AssistLevel, type Tool, isAssistLevel, isTool } from "./settings";
+import { type AssistLevel, isAssistLevel } from "./settings";
 import { type KeyValueStorage, isRecord, readJson, writeJson } from "./storage";
 
 export const PLAY_LOG_KEY = "nyoro-rin.play-log.v1";
@@ -88,6 +88,13 @@ export type LoggedNoHintReason = (typeof LOGGED_NO_HINT_REASONS)[number];
 
 export type PlayOutcome = "cleared" | "abandoned";
 
+/** The tools of the retired line and × switch, as old logs name them. */
+const LEGACY_TOOLS: readonly unknown[] = [
+  "line",
+  "cross",
+] satisfies LegacyTool[];
+type LegacyTool = "line" | "cross";
+
 export type PlayLogEvent =
   /** READY's OK: the clock runs. */
   | readonly ["start", number]
@@ -99,7 +106,11 @@ export type PlayLogEvent =
   /** The hint button found no hint, and why. */
   | readonly ["no-hint", number, LoggedNoHintReason]
   | readonly ["assist", number, AssistLevel]
-  | readonly ["tool", number, Tool]
+  /**
+   * The line and × tool switched. Only logs from before the × tool was
+   * retired (issue #6) hold it; still read, since sent logs stay readable.
+   */
+  | readonly ["tool", number, LegacyTool]
   /** Long press: the magnified view opened. */
   | readonly ["zoom", number]
   | readonly ["end", number, PlayOutcome];
@@ -220,7 +231,7 @@ export function isPlayLogEvent(value: unknown): value is PlayLogEvent {
     case "assist":
       return value.length === 3 && isAssistLevel(a);
     case "tool":
-      return value.length === 3 && isTool(a);
+      return value.length === 3 && LEGACY_TOOLS.includes(a);
     case "end":
       return value.length === 3 && isPlayOutcome(a);
     default:

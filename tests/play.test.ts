@@ -19,42 +19,34 @@ import { geometry } from "./helpers";
 const empty = () => emptyPlayBoard(geometry.edgeCount);
 
 describe("tap (DESIGN.md 7.2)", () => {
-  it("cycles unknown → line → × → unknown with the line tool", () => {
-    expect(tappedState(UNKNOWN, "line")).toBe(LINE);
-    expect(tappedState(LINE, "line")).toBe(CROSS);
-    expect(tappedState(CROSS, "line")).toBe(UNKNOWN);
-  });
-
-  it("toggles × with the × tool, over a line too", () => {
-    expect(tappedState(UNKNOWN, "cross")).toBe(CROSS);
-    expect(tappedState(LINE, "cross")).toBe(CROSS);
-    expect(tappedState(CROSS, "cross")).toBe(UNKNOWN);
+  it("cycles unknown → line → × → unknown", () => {
+    expect(tappedState(UNKNOWN)).toBe(LINE);
+    expect(tappedState(LINE)).toBe(CROSS);
+    expect(tappedState(CROSS)).toBe(UNKNOWN);
   });
 });
 
 describe("stroke (DESIGN.md 7.3)", () => {
-  it("erases when the first edge already has the tool's mark", () => {
-    expect(strokeMode(LINE, "line")).toBe("erase");
-    expect(strokeMode(CROSS, "line")).toBe("add");
-    expect(strokeMode(CROSS, "cross")).toBe("erase");
-    expect(strokeMode(UNKNOWN, "cross")).toBe("add");
+  it("erases when the first edge is already a line", () => {
+    expect(strokeMode(LINE)).toBe("erase");
+    expect(strokeMode(CROSS)).toBe("add");
+    expect(strokeMode(UNKNOWN)).toBe("add");
   });
 
-  it("draws lines over ×, but × strokes leave lines alone", () => {
-    expect(strokedState(CROSS, "line", "add")).toBe(LINE);
-    expect(strokedState(LINE, "cross", "add")).toBeUndefined();
-    expect(strokedState(UNKNOWN, "cross", "add")).toBe(CROSS);
+  it("draws lines over × too", () => {
+    expect(strokedState(CROSS, "add")).toBe(LINE);
+    expect(strokedState(UNKNOWN, "add")).toBe(LINE);
+    expect(strokedState(LINE, "add")).toBeUndefined();
   });
 
-  it("erases only marks of its own kind", () => {
-    expect(strokedState(LINE, "line", "erase")).toBe(UNKNOWN);
-    expect(strokedState(CROSS, "line", "erase")).toBeUndefined();
-    expect(strokedState(CROSS, "cross", "erase")).toBe(UNKNOWN);
-    expect(strokedState(LINE, "cross", "erase")).toBeUndefined();
+  it("erases lines only", () => {
+    expect(strokedState(LINE, "erase")).toBe(UNKNOWN);
+    expect(strokedState(CROSS, "erase")).toBeUndefined();
+    expect(strokedState(UNKNOWN, "erase")).toBeUndefined();
   });
 
   it("is one move however many edges it passes", () => {
-    let stroke = beginStroke(empty(), "line");
+    let stroke = beginStroke(empty());
     let board = empty();
     for (const edges of [[1], [2, 3], [4]]) {
       ({ stroke, board } = continueStroke(stroke, edges));
@@ -74,7 +66,7 @@ describe("stroke (DESIGN.md 7.3)", () => {
       { edge: 1, after: LINE },
       { edge: 3, after: LINE },
     ]);
-    const stroke = beginStroke(start, "line");
+    const stroke = beginStroke(start);
     // 1 本目が線なので消すなぞりになり、線のない 2 には何もしない。
     const { board } = continueStroke(stroke, [1, 2, 3]);
     expect([1, 2, 3].map((e) => board.states[e])).toEqual([
@@ -86,7 +78,7 @@ describe("stroke (DESIGN.md 7.3)", () => {
 
   it("is no move when it changes nothing", () => {
     const start = empty();
-    const stroke = beginStroke(start, "line");
+    const stroke = beginStroke(start);
     expect(continueStroke(stroke, []).board).toBe(start);
   });
 });
