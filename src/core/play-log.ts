@@ -71,6 +71,21 @@ const MOVE_SOURCES: readonly unknown[] = [
 /** What a hint step showed: a technique's ID, or MISTAKE or REVEAL. */
 export type HintLabel = string;
 
+/**
+ * Why the hint button found nothing on an unsolved board (src/core/hint.ts
+ * searchHint). A solved board takes no hint press, so SOLVED is not logged.
+ */
+export const LOGGED_NO_HINT_REASONS = [
+  /** The search for a mistake hit the complete solver's budget. */
+  "ABORTED",
+  /** The marks allow no answer, yet each agrees with the saved one. */
+  "NO_WRONG_MARK",
+  /** No technique, and no unknown edge of the saved answer to reveal. */
+  "NO_OPEN_EDGE",
+] as const;
+
+export type LoggedNoHintReason = (typeof LOGGED_NO_HINT_REASONS)[number];
+
 export type PlayOutcome = "cleared" | "abandoned";
 
 export type PlayLogEvent =
@@ -81,6 +96,8 @@ export type PlayLogEvent =
   | readonly ["move", number, MoveSource, readonly LoggedChange[]]
   /** A hint step shown: 1 focus, 2 reason, 3 apply. */
   | readonly ["hint", number, Exclude<HintStage, 0>, HintLabel]
+  /** The hint button found no hint, and why. */
+  | readonly ["no-hint", number, LoggedNoHintReason]
   | readonly ["assist", number, AssistLevel]
   | readonly ["tool", number, Tool]
   /** Long press: the magnified view opened. */
@@ -194,6 +211,11 @@ export function isPlayLogEvent(value: unknown): value is PlayLogEvent {
         a !== 0 &&
         typeof b === "string" &&
         HINT_LABEL.test(b)
+      );
+    case "no-hint":
+      return (
+        value.length === 3 &&
+        (LOGGED_NO_HINT_REASONS as readonly unknown[]).includes(a)
       );
     case "assist":
       return value.length === 3 && isAssistLevel(a);

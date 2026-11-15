@@ -6,12 +6,13 @@ import {
   findHint,
   hintStepEdits,
   nextHintStep,
+  searchHint,
   withHintStep,
 } from "../src/core/hint";
 import { propagate } from "../src/core/logical";
 import { CROSS, LINE, type EdgeStates, type Puzzle } from "../src/core/model";
 import { applyEdits, emptyPlayBoard } from "../src/core/play";
-import { isSolved, statesFromLines } from "../src/core/rules";
+import { findConflicts, isSolved, statesFromLines } from "../src/core/rules";
 import { CROSS_ONLY_TECHNIQUES } from "../src/core/techniques";
 import { geometry, states } from "./helpers";
 
@@ -113,6 +114,81 @@ describe("hint order (DESIGN.md 11.1)", () => {
   it("gives nothing on a solved board", () => {
     const solved = statesFromLines(geometry, easy.solution);
     expect(findHint(geometry, easy, solved)).toBeUndefined();
+  });
+});
+
+/**
+ * The board with one wrong mark that breaks no rule on the spot, as players
+ * leave them; undefined if every open edge would.
+ */
+function withQuietMistake(
+  puzzle: Puzzle,
+  answer: ReadonlySet<number>,
+  board: EdgeStates,
+): EdgeStates | undefined {
+  for (let edge = 0; edge < board.length; edge += 1) {
+    if (board[edge] !== 0) continue;
+    const wrong = Uint8Array.from(board);
+    wrong[edge] = answer.has(edge) ? CROSS : LINE;
+    if (findConflicts(geometry, puzzle.clues, wrong).length === 0) return wrong;
+  }
+  return undefined;
+}
+
+describe("boards without a hint (issue #5)", () => {
+  it("gets a hint on every unsolved board, right or wrong", () => {
+    const hard = generatePuzzle("hint-hard", "hard").puzzle;
+    for (const puzzle of [easy, normal, hard]) {
+      const answer = new Set(puzzle.solution);
+      let board = states();
+      let wrongBoards = 0;
+      for (let i = 0; i < geometry.edgeCount; i += 1) {
+        const found = searchHint(geometry, puzzle, board);
+        if (found.reason === "SOLVED") break;
+        expect(found.reason, `${puzzle.seed} step ${i}`).toBeUndefined();
+        const wrong = withQuietMistake(puzzle, answer, board);
+        if (wrong) {
+          wrongBoards += 1;
+          expect(searchHint(geometry, puzzle, wrong).hint?.kind).toBe(
+            "mistake",
+          );
+        }
+        board = apply(board, found.hint!);
+      }
+      expect(isSolved(geometry, puzzle.clues, board)).toBe(true);
+      // The wrong half must not pass by checking nothing.
+      expect(wrongBoards, puzzle.seed).toBeGreaterThan(0);
+    }
+  });
+
+  it("says SOLVED on a solved board", () => {
+    const solved = statesFromLines(geometry, easy.solution);
+    expect(searchHint(geometry, easy, solved)).toEqual({ reason: "SOLVED" });
+  });
+
+  it("says ABORTED when the mistake search runs out of budget", () => {
+    const board = states();
+    board[easy.solution[0]] = CROSS;
+    expect(searchHint(geometry, easy, board, { nodeLimit: 1 })).toEqual({
+      reason: "ABORTED",
+    });
+  });
+
+  it("names the other reasons only for an answer that is not the board's", () => {
+    // A line of another board's answer: the clues allow no loop with it,
+    // yet it agrees with the answer handed in.
+    const line = normal.solution.find((e) => !easy.solution.includes(e))!;
+    const board = states();
+    board[line] = LINE;
+    const mismatched = { clues: easy.clues, solution: normal.solution };
+    expect(searchHint(geometry, mismatched, board)).toEqual({
+      reason: "NO_WRONG_MARK",
+    });
+    // No clue gives no technique, and an empty answer nothing to reveal.
+    const blank = { clues: easy.clues.map(() => null), solution: [] };
+    expect(searchHint(geometry, blank, states())).toEqual({
+      reason: "NO_OPEN_EDGE",
+    });
   });
 });
 

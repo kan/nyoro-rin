@@ -15,6 +15,7 @@ import {
   type Puzzle,
 } from "./model";
 import { type EdgeEdit } from "./play";
+import { type LoggedNoHintReason } from "./play-log";
 import { edgesWithState, isSolved } from "./rules";
 import { solveCompletely } from "./solver";
 import { STEP_TECHNIQUE_IDS, type LogicalMove } from "./techniques";
@@ -59,19 +60,44 @@ export type HintStep = Exclude<HintStage, 0>;
 export const LAST_HINT_STEP: HintStep = 3;
 
 /**
- * The next hint for the board, in the order of DESIGN.md 11.1. Undefined
- * only when the board is solved, or the search for a mistake gave up.
+ * Why a board got no hint: solved, or one of the reasons the play log keeps
+ * (src/core/play-log.ts). Only SOLVED is expected; tests/hint.test.ts
+ * checks the others do not come up on real boards.
  */
+export type NoHintReason = "SOLVED" | LoggedNoHintReason;
+
+/** A hint, or why there is none. */
+export type HintSearch =
+  | { readonly hint: Hint; readonly reason?: undefined }
+  | { readonly hint?: undefined; readonly reason: NoHintReason };
+
+export interface HintSearchOptions {
+  /** The complete solver's budget for the mistake search; its own by default. */
+  readonly nodeLimit?: number;
+}
+
+/** The next hint for the board, in the order of DESIGN.md 11.1. */
 export function findHint(
   geometry: BoardGeometry,
   puzzle: Pick<Puzzle, "clues" | "solution">,
   states: EdgeStates,
 ): Hint | undefined {
-  const { clues } = puzzle;
-  if (isSolved(geometry, clues, states)) return undefined;
+  return searchHint(geometry, puzzle, states).hint;
+}
 
-  const mistake = findMistake(geometry, puzzle, states);
-  if (mistake !== null) return mistake;
+/** findHint, saying why when there is no hint. */
+export function searchHint(
+  geometry: BoardGeometry,
+  puzzle: Pick<Puzzle, "clues" | "solution">,
+  states: EdgeStates,
+  options: HintSearchOptions = {},
+): HintSearch {
+  const { clues } = puzzle;
+  if (isSolved(geometry, clues, states)) return { reason: "SOLVED" };
+
+  const mistake = findMistake(geometry, puzzle, states, options);
+  if (typeof mistake === "string") return { reason: mistake };
+  if (mistake) return { hint: mistake };
 
   // The × the assist gives count as known, whatever the assist setting,
   // so a hint is never spent on one of them.
@@ -97,46 +123,51 @@ export function findHint(
       techniques,
       assumptions: [CROSS],
     });
-  if (line) return withCrosses(line);
+  if (line) return { hint: withCrosses(line) };
   const cross =
     moves.find((move) => move.crosses.length > 0) ??
     findTrialMove(geometry, clues, known, {
       techniques,
       assumptions: [LINE],
     });
-  if (cross) return withCrosses(cross);
+  if (cross) return { hint: withCrosses(cross) };
 
   for (const edge of puzzle.solution) {
-    if (states[edge] === UNKNOWN) return { kind: "reveal", edge };
+    if (states[edge] === UNKNOWN) return { hint: { kind: "reveal", edge } };
   }
-  return undefined;
+  return { reason: "NO_OPEN_EDGE" };
 }
 
 /**
  * Whether the marks leave the clues a solution, decided by the complete
  * solver rather than by comparing with the answer; if not, the marks that
  * differ from the answer of the bare clues (the puzzle's, checked unique
- * when it was made) are the mistakes. Null when there is no mistake,
- * undefined when the search gave up.
+ * when it was made) are the mistakes. Null when there is no mistake; why
+ * not, when none can be pointed at.
  */
 function findMistake(
   geometry: BoardGeometry,
   puzzle: Pick<Puzzle, "clues" | "solution">,
   states: EdgeStates,
-): MistakeHint | null | undefined {
+  options: HintSearchOptions,
+): MistakeHint | null | "ABORTED" | "NO_WRONG_MARK" {
   const lines = edgesWithState(states, LINE);
   const crosses = edgesWithState(states, CROSS);
   if (lines.length === 0 && crosses.length === 0) return null;
-  const marked = solveCompletely(geometry, puzzle.clues, { lines, crosses });
+  const marked = solveCompletely(geometry, puzzle.clues, {
+    lines,
+    crosses,
+    nodeLimit: options.nodeLimit,
+  });
   const solution = new Set(puzzle.solution);
-  if (marked.status === "aborted") return undefined;
+  if (marked.status === "aborted") return "ABORTED";
   if (marked.status !== "none") return null;
   const wrongLines = lines.filter((edge) => !solution.has(edge));
   const wrongCrosses = crosses.filter((edge) => solution.has(edge));
   const first = Math.min(...wrongLines, ...wrongCrosses);
   // Every mark agrees with an answer the clues do not allow: the saved
   // answer is not this puzzle's, and there is nothing true to point at.
-  if (!Number.isFinite(first)) return undefined;
+  if (!Number.isFinite(first)) return "NO_WRONG_MARK";
   return {
     kind: "mistake",
     wrongLines,

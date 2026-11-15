@@ -12,7 +12,8 @@
  *   summary   per difficulty: attempts, clears, abandons, time, hints, assist
  *   stuck     the boards players stared at for a minute or more, and the
  *             technique the next step needed there (by replaying the logs)
- *   hints     what the hints players asked for were about
+ *   hints     what the hints players asked for were about, and the presses
+ *             that found none (NO_HINT and why)
  *   abandon   where abandoned attempts stopped: progress and next technique
  *   feedback  the newest feedback with what the game was showing
  *   log <playId>  one attempt's events, as a timeline
@@ -23,7 +24,7 @@
 import { execFileSync } from "node:child_process";
 import { boardGeometry } from "../src/core/board";
 import { generatePuzzle } from "../src/core/generator";
-import { findHint, hintLabel } from "../src/core/hint";
+import { hintLabel, searchHint } from "../src/core/hint";
 import { isPlayId } from "../src/core/attempt";
 import {
   DIFFICULTIES,
@@ -168,9 +169,14 @@ function eventsOf(row: LogRow): PlayLogEvent[] {
 }
 
 /** What the next step needed on a board, as the hint finder sees it. */
+/** What the hint would say on the board, or NO_HINT and why, as `hints` names it. */
 function nextStepLabel(puzzle: Puzzle, states: Uint8Array): string {
-  const hint = findHint(boardGeometry(puzzle.size), puzzle, states);
-  return hint ? hintLabel(hint) : "NONE";
+  const { hint, reason } = searchHint(
+    boardGeometry(puzzle.size),
+    puzzle,
+    states,
+  );
+  return hint ? hintLabel(hint) : `NO_HINT:${reason}`;
 }
 
 // --- printing ---------------------------------------------------------------------
@@ -306,7 +312,11 @@ function stuck(): void {
         label,
         these.length,
         median(these.map((s) => s.gapMs)),
-        share(these.filter((s) => s.then === "hint").length, these.length),
+        // Pressing the hint button, whether or not it found one.
+        share(
+          these.filter((s) => s.then === "hint" || s.then === "no-hint").length,
+          these.length,
+        ),
         share(these.filter((s) => s.then === "end").length, these.length),
       ]),
     ),
@@ -316,26 +326,44 @@ function stuck(): void {
 function hints(): void {
   const logs = readLogs(true);
   // The first step of a hint is the hint asked for; later steps follow it.
-  const asked = logs.flatMap((row) =>
+  // A press that found nothing is kept apart, as NO_HINT and why (issue
+  // #5), so that the hints' own shares stay comparable over time.
+  const presses = logs.flatMap((row) =>
     eventsOf(row).flatMap((event) =>
       event[0] === "hint" && event[2] === 1
-        ? [{ difficulty: row.difficulty, label: event[3] }]
-        : [],
+        ? [{ difficulty: row.difficulty, label: event[3], found: true }]
+        : event[0] === "no-hint"
+          ? [
+              {
+                difficulty: row.difficulty,
+                label: `NO_HINT:${event[2]}`,
+                found: false,
+              },
+            ]
+          : [],
     ),
   );
+  const missed = presses.filter((p) => !p.found).length;
   console.log(
-    `## ヒントの内容（${asked.length} 回、ログ ${logs.length} 件）\n`,
+    `## ヒントの内容（${presses.length - missed} 回、ログ ${logs.length} 件。ヒントが見つからなかった押下 ${missed} 回）\n`,
   );
-  byDifficulty(asked, (here) =>
+  byDifficulty(presses, (here) => {
+    const asked = here.filter((p) => p.found);
     table(
       ["ヒント", "回数", "割合"],
-      countBy(here, (a) => a.label).map(([label, n]) => [
+      countBy(asked, (a) => a.label).map(([label, n]) => [
         label,
         n,
-        share(n, here.length),
+        share(n, asked.length),
       ]),
-    ),
-  );
+    );
+    const none = here.filter((p) => !p.found);
+    if (none.length > 0)
+      table(
+        ["見つからず", "回数"],
+        countBy(none, (a) => a.label),
+      );
+  });
 }
 
 const PROGRESS_BANDS = ["0〜25%", "25〜50%", "50〜75%", "75〜100%"];

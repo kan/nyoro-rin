@@ -21,6 +21,7 @@ import {
 } from "../core/hint";
 import {
   type MoveSource,
+  type LoggedNoHintReason,
   type PlayLog,
   type PlayLogEvent,
   type PlayLogUpload,
@@ -519,6 +520,17 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     saveGame();
   }
 
+  /**
+   * The hint button found nothing (issue #5): logged with why, to find
+   * boards where it happens. Not a hint, so the hint count stays.
+   */
+  function recordNoHint(reason: LoggedNoHintReason): void {
+    if (!attempt.value || !playable.value) return;
+    logEvent((t) => ["no-hint", t, reason]);
+    // The log lives in storage beside the game: a reload keeps the event.
+    saveGame();
+  }
+
   /** A hint's step 3: one move, which undo takes back (DESIGN.md 11.2). */
   function applyHint(edits: readonly EdgeEdit[]): void {
     if (playable.value) setBoard(applyEdits(board.value, edits), "hint");
@@ -547,6 +559,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     failure,
     restore,
     recordHintStep,
+    recordNoHint,
     applyHint,
     load,
     startNew,

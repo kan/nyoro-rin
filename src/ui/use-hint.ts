@@ -4,7 +4,12 @@
  * through it.
  */
 import { computed, ref, shallowRef, watch } from "vue";
-import { type Hint, type HintStep, findHint, nextHintStep } from "../core/hint";
+import {
+  type Hint,
+  type HintStep,
+  nextHintStep,
+  searchHint,
+} from "../core/hint";
 import { type HintMarks, hintMarks, hintText } from "./hint-view";
 import { type usePlay } from "./use-play";
 
@@ -71,7 +76,7 @@ export function useHint(play: ReturnType<typeof usePlay>) {
       else open.value = true;
       return;
     }
-    const hint = findHint(
+    const { hint, reason } = searchHint(
       play.geometry.value,
       play.puzzle.value!,
       play.board.value.states,
@@ -79,6 +84,8 @@ export function useHint(play: ReturnType<typeof usePlay>) {
     shown.value = { hint, step: 1 };
     open.value = true;
     if (hint) play.recordHintStep(hint, 1);
+    // A solved board is not playable, so it never gets here.
+    else if (reason !== "SOLVED") play.recordNoHint(reason);
   }
 
   function next(): void {

@@ -50,6 +50,7 @@ describe("the play log (DESIGN.md 20.1)", () => {
       ["start", 0],
       ["move", 5, "stroke", [[1, 0, 1]]],
       ["hint", 6, 3, "LINE_INTO_THREE"],
+      ["no-hint", 6, "ABORTED"],
       ["assist", 7, 0],
       ["tool", 8, "cross"],
       ["end", 9, "abandoned"],
@@ -60,6 +61,10 @@ describe("the play log (DESIGN.md 20.1)", () => {
       ["move", 5, "tap", []],
       ["hint", 6, 0, "ZERO"],
       ["hint", 6, 1, "<b>"],
+      ["no-hint", 6, "TIRED"],
+      // A solved board takes no hint press: SOLVED is never logged.
+      ["no-hint", 6, "SOLVED"],
+      ["no-hint", 6],
       ["end", 9, "lost"],
       ["zoom", 1, "extra"],
       ["undo", 1],
