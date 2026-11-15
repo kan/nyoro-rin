@@ -5,6 +5,7 @@ import {
   type Hint,
   findHint,
   hintStepEdits,
+  nextHintStep,
   withHintStep,
 } from "../src/core/hint";
 import { propagate } from "../src/core/logical";
@@ -97,6 +98,16 @@ describe("hint order (DESIGN.md 11.1)", () => {
     expect(hintStepEdits(hint, 1)).toEqual([]);
     expect(hintStepEdits(hint, 2)).toEqual([]);
     expect(hintStepEdits(hint, 3).length).toBeGreaterThan(0);
+  });
+
+  it("steps on to the writing, and no further", () => {
+    const hint = findHint(geometry, easy, states())!;
+    expect(nextHintStep(hint, 1)).toEqual({ step: 2, edits: [] });
+    expect(nextHintStep(hint, 2)).toEqual({
+      step: 3,
+      edits: hintStepEdits(hint, 3),
+    });
+    expect(nextHintStep(hint, 3)).toBeUndefined();
   });
 
   it("gives nothing on a solved board", () => {

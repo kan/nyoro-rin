@@ -67,6 +67,7 @@ const emit = defineEmits<{
   close: [];
   newPuzzle: [choice: DifficultyChoice];
   loadSeed: [code: SeedCode];
+  tutorial: [];
 }>();
 
 const page = ref<MenuPage>("top");
@@ -340,6 +341,9 @@ async function copySeed(): Promise<void> {
       </section>
 
       <section v-else class="menu-page help">
+        <button type="button" class="primary" @click="emit('tutorial')">
+          <UiIcon name="help" />チュートリアルを始める
+        </button>
         <ul>
           <li>点と点を結んで、枝分かれも交差もしない 1 本の輪を作ります。</li>
           <li>数字は、そのマスの 4 辺のうち線が通る本数です。</li>

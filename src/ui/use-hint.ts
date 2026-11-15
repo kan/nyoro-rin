@@ -4,13 +4,7 @@
  * through it.
  */
 import { computed, ref, shallowRef, watch } from "vue";
-import {
-  type Hint,
-  type HintStep,
-  LAST_HINT_STEP,
-  findHint,
-  hintStepEdits,
-} from "../core/hint";
+import { type Hint, type HintStep, findHint, nextHintStep } from "../core/hint";
 import { type HintMarks, hintMarks, hintText } from "./hint-view";
 import { type usePlay } from "./use-play";
 
@@ -41,25 +35,21 @@ export function useHint(play: ReturnType<typeof usePlay>) {
     shown.value?.hint ? shown.value.step : undefined,
   );
 
-  const hasNext = computed(
-    () => step.value !== undefined && step.value < LAST_HINT_STEP,
-  );
+  /** The step the hint button goes to next, if any. */
+  const following = computed(() => {
+    const hint = shown.value?.hint;
+    return hint ? nextHintStep(hint, shown.value!.step) : undefined;
+  });
+
+  const hasNext = computed(() => following.value !== undefined);
 
   /** Whether the next step writes the hint onto the board. */
-  const nextWrites = computed(() => {
-    const hint = shown.value?.hint;
-    return (
-      hint !== undefined &&
-      hasNext.value &&
-      hintStepEdits(hint, (step.value! + 1) as HintStep).length > 0
-    );
-  });
+  const nextWrites = computed(() => (following.value?.edits.length ?? 0) > 0);
 
   const text = computed(() => {
     const current = shown.value;
     const puzzle = play.puzzle.value;
     if (!current || !puzzle) return "";
-    if (!current.hint) return "今の盤面ではヒントが見つかりませんでした。";
     return hintText(current.hint, current.step, puzzle.clues);
   });
 
@@ -93,13 +83,11 @@ export function useHint(play: ReturnType<typeof usePlay>) {
 
   function next(): void {
     const hint = shown.value?.hint;
-    if (!hint || !hasNext.value || !play.playable.value) return;
-    const nextStep = (step.value! + 1) as HintStep;
-    play.recordHintStep(hint, nextStep);
-    const edits = hintStepEdits(hint, nextStep);
-    // Writing is a move, which ends the hint.
-    if (edits.length > 0) play.applyHint(edits);
-    else shown.value = { hint, step: nextStep };
+    const next = following.value;
+    if (!hint || !next || !play.playable.value) return;
+    play.recordHintStep(hint, next.step);
+    if (next.edits.length > 0) play.applyHint(next.edits);
+    else shown.value = { hint, step: next.step };
   }
 
   function close(): void {

@@ -34,7 +34,7 @@ const NO_HINT_MARKS: HintMarks = {
   crosses: [],
 };
 
-function placeMarks(places: Places): HintMarks {
+export function placeMarks(places: Places): HintMarks {
   return {
     ...NO_HINT_MARKS,
     cells: places.cells,
@@ -157,12 +157,16 @@ function moveReason(
   }
 }
 
-/** The words of a hint at a step; step 3 of a move is the writing itself. */
+/**
+ * The words of a hint at a step; step 3 of a move is the writing itself.
+ * Without a hint, that none was found.
+ */
 export function hintText(
-  hint: Hint,
+  hint: Hint | undefined,
   step: HintStep,
   clues: readonly Clue[],
 ): string {
+  if (!hint) return "今の盤面ではヒントが見つかりませんでした。";
   switch (hint.kind) {
     case "mistake":
       if (step === 1) return "今の線か × に誤りがあります。";

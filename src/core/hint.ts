@@ -202,6 +202,19 @@ export function hintStepEdits(hint: Hint, step: HintStep): EdgeEdit[] {
 }
 
 /**
+ * The step after `step` and what showing it writes; undefined after the
+ * last. Writing is a move, which ends the hint (DESIGN.md 11.2).
+ */
+export function nextHintStep(
+  hint: Hint,
+  step: HintStep,
+): { step: HintStep; edits: EdgeEdit[] } | undefined {
+  if (step >= LAST_HINT_STEP) return undefined;
+  const next = (step + 1) as HintStep;
+  return { step: next, edits: hintStepEdits(hint, next) };
+}
+
+/**
  * What a hint is about, as the play log names it: the technique's ID, or
  * MISTAKE or REVEAL (src/core/play-log.ts).
  */

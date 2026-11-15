@@ -6,6 +6,7 @@
  */
 import {
   computed,
+  defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -14,36 +15,36 @@ import {
 } from "vue";
 import { type DifficultyChoice } from "./core/difficulty-choice";
 import { type FeedbackContext, type FeedbackSource } from "./core/feedback";
-import { type EdgeState } from "./core/model";
-import { tappedState } from "./core/play";
 import { completedPlay } from "./core/results";
+import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { type SeedCode } from "./core/seed-code";
 import { type Tool } from "./core/settings";
-import BoardView, {
-  type BoardPointerEvent,
-  type TapPreview,
-} from "./ui/BoardView.vue";
+import BoardView from "./ui/BoardView.vue";
 import DifficultyDialog from "./ui/DifficultyDialog.vue";
 import HintPanel from "./ui/HintPanel.vue";
 import LeaderboardList from "./ui/LeaderboardList.vue";
 import MenuDialog, { type MenuPage } from "./ui/MenuDialog.vue";
 import UiIcon from "./ui/UiIcon.vue";
-import {
-  LONG_PRESS_MS,
-  type BoardPoint,
-  type ZoomWindow,
-  panZoomWindow,
-  zoomWindowAt,
-} from "./ui/board-input";
 import { portalUrl } from "./ui/auth";
-import { BoardGesture } from "./ui/gesture";
+import { browserStorage } from "./ui/browser-storage";
 import { formatScore, formatSeconds } from "./ui/format";
 import { DIFFICULTY_CHOICE_LABELS, DIFFICULTY_LABELS } from "./ui/labels";
 import { useDifficultyChoice } from "./ui/use-difficulty-choice";
+import { useBoardInput } from "./ui/use-board-input";
 import { usePlay } from "./ui/use-play";
 import { useHint } from "./ui/use-hint";
 import { useOnline } from "./ui/use-online";
 import { useSettings } from "./ui/use-settings";
+
+const TutorialDialog = defineAsyncComponent({
+  loader: () => import("./ui/TutorialDialog.vue"),
+  // Unloaded (offline, or a page left over from an older deploy): the game
+  // goes on without it, READY included. Not marked seen, so it comes again.
+  onError: (_error, _retry, fail) => {
+    fail();
+    if (panel.value === "tutorial") closePanel();
+  },
+});
 
 const settings = useSettings();
 const online = useOnline();
@@ -58,9 +59,31 @@ const { puzzle, board, geometry, annotations, inside, loop, solved, loading } =
   play;
 
 /** The dialog open over the board, if any; one at a time. */
-type Panel = "menu" | "difficulty";
+type Panel = "menu" | "difficulty" | "tutorial";
 const panel = ref<Panel>();
-const zoom = ref<ZoomWindow>();
+/** Whether the tutorial opened by itself, on the device's first visit. */
+const tutorialFirstVisit = ref(false);
+const {
+  zoom,
+  tapPreview,
+  mainBoardHandlers,
+  zoomBoardHandlers,
+  endGesture,
+  closeZoom,
+} = useBoardInput({
+  geometry,
+  states: computed(() => board.value.states),
+  tool: computed(() => settings.value.tool),
+  playable: play.playable,
+  haptics: computed(() => settings.value.haptics),
+  tap: play.tap,
+  beginStroke: play.beginStroke,
+  strokeEdges: play.strokeEdges,
+  endStroke: play.endStroke,
+  zoomable: true,
+  onPress: () => endLap(),
+  onZoom: play.noteZoom,
+});
 /** After a clear: the snake going round the loop, then the card. */
 const clearPhase = ref<"lap" | "card">();
 const confirmDialog = ref<HTMLDialogElement>();
@@ -216,118 +239,6 @@ function closePanel(): void {
   releaseClock();
 }
 
-// --- input -------------------------------------------------------------
-
-let gesture: BoardGesture | undefined;
-let gestureInZoom = false;
-/** The edge the press would tap, shown pale until it is released. */
-const tapEdge = ref<number>();
-/** What the tap would make of it, from the board as it is now. */
-const tapPreview = computed<TapPreview | undefined>(() => {
-  const edge = tapEdge.value;
-  if (edge === undefined) return undefined;
-  const current = board.value.states[edge] as EdgeState;
-  return { edge, after: tappedState(current, settings.value.tool) };
-});
-let pan: { clientX: number; clientY: number; window: ZoomWindow } | undefined;
-let longPress: ReturnType<typeof setTimeout> | undefined;
-
-function stopLongPress(): void {
-  if (longPress !== undefined) clearTimeout(longPress);
-  longPress = undefined;
-}
-
-function endGesture(): void {
-  stopLongPress();
-  play.endStroke();
-  gesture = undefined;
-  pan = undefined;
-  tapEdge.value = undefined;
-}
-
-function onPress(event: BoardPointerEvent, inZoom: boolean): void {
-  endLap();
-  if (!play.playable.value) return;
-  stopLongPress();
-  gesture = new BoardGesture(geometry.value, event.point, {
-    tool: settings.value.tool,
-    inZoom,
-  });
-  gestureInZoom = inZoom;
-  tapEdge.value = gesture.tapEdge;
-  pan = undefined;
-  if (gesture.kind === "pan" && zoom.value) {
-    pan = {
-      clientX: event.clientX,
-      clientY: event.clientY,
-      window: zoom.value,
-    };
-  } else if (gesture.kind !== "tap") {
-    play.beginStroke();
-  }
-  if (!inZoom) {
-    const start = event.point;
-    longPress = setTimeout(() => openZoom(start), LONG_PRESS_MS);
-  }
-}
-
-function onDrag(event: BoardPointerEvent, inZoom: boolean): void {
-  if (!gesture || inZoom !== gestureInZoom) return;
-  const edges = gesture.move(event.point);
-  if (gesture.hasMoved) {
-    stopLongPress();
-    tapEdge.value = undefined;
-  }
-  if (pan && gesture.hasMoved) {
-    zoom.value = panZoomWindow(
-      geometry.value,
-      pan.window,
-      (event.clientX - pan.clientX) * event.unitsPerPixel,
-      (event.clientY - pan.clientY) * event.unitsPerPixel,
-    );
-  } else if (edges.length > 0) {
-    play.strokeEdges(edges);
-  }
-}
-
-function onRelease(inZoom: boolean): void {
-  if (!gesture || inZoom !== gestureInZoom) return;
-  const tapped = gesture.release();
-  endGesture();
-  if (tapped !== undefined) play.tap(tapped);
-}
-
-function onCancel(inZoom: boolean): void {
-  if (inZoom === gestureInZoom) endGesture();
-}
-
-/** The pointer handlers of one of the two boards. */
-function boardHandlers(inZoom: boolean) {
-  return {
-    onPress: (event: BoardPointerEvent) => onPress(event, inZoom),
-    onDrag: (event: BoardPointerEvent) => onDrag(event, inZoom),
-    onRelease: () => onRelease(inZoom),
-    onCancel: () => onCancel(inZoom),
-  };
-}
-const mainBoardHandlers = boardHandlers(false);
-const zoomBoardHandlers = boardHandlers(true);
-
-/** Long press: magnify around the press (DESIGN.md 7.4). */
-function openZoom(center: BoardPoint): void {
-  longPress = undefined;
-  if (!gesture || gesture.hasMoved) return;
-  endGesture();
-  zoom.value = zoomWindowAt(geometry.value, center);
-  play.noteZoom();
-  if (settings.value.haptics) navigator.vibrate?.(12);
-}
-
-function closeZoom(): void {
-  zoom.value = undefined;
-  onCancel(true);
-}
-
 function onKeydown(event: KeyboardEvent): void {
   // Esc in a dialog closes the dialog only; the view behind it stays.
   const dialogOpen = panel.value !== undefined || confirmDialog.value?.open;
@@ -412,7 +323,22 @@ onMounted(() => {
   const restored = play.restore();
   difficulty.startFrom(puzzle.value?.difficulty);
   if (!restored) void play.startNew(difficulty.next());
+  // Before READY and the invitation to the ranking (DESIGN.md 11.5): both
+  // wait while a panel is open.
+  const storage = browserStorage();
+  if (!storage || shouldShowTutorial(storage)) {
+    tutorialFirstVisit.value = true;
+    openPanel("tutorial");
+  }
 });
+
+/** Closed in any way, the tutorial does not come by itself again. */
+function closeTutorial(): void {
+  const storage = browserStorage();
+  if (storage) rememberTutorial(storage);
+  tutorialFirstVisit.value = false;
+  closePanel();
+}
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
   window.removeEventListener("blur", suspend);
@@ -767,6 +693,17 @@ onBeforeUnmount(() => {
       @close="closePanel"
       @new-puzzle="requestNew"
       @load-seed="loadSeed"
+      @tutorial="panel = 'tutorial'"
+    />
+
+    <!-- Loaded and built only when opened: most visits never open it. -->
+    <TutorialDialog
+      v-if="panel === 'tutorial'"
+      :open="true"
+      :first-visit="tutorialFirstVisit"
+      :assist="settings.assist"
+      :show-conflicts="settings.showConflicts"
+      @close="closeTutorial"
     />
 
     <DifficultyDialog
