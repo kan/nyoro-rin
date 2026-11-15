@@ -189,7 +189,7 @@ export function apiPost(path: string, body: unknown): Promise<Response> {
  * hosts get the local one.
  */
 export function portalUrl(
-  path: "/" | "/account" | "/privacy" | "/terms",
+  path: "/" | "/account" | "/privacy" | "/terms" | "/favicon.svg",
   host = new URL(window.location.href).hostname,
 ): string {
   const local =

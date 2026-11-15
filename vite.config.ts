@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { VitePWA } from "vite-plugin-pwa";
+import {
+  SERVER_PACKAGES,
+  SERVICE_WORKER_PACKAGES,
+  licensesPlugin,
+} from "./scripts/licenses-plugin.ts";
 
 /**
  * The build sent with play logs and feedback: package.json's version and the
@@ -25,6 +30,11 @@ function appVersion(): string {
 export default defineConfig({
   plugins: [
     vue(),
+    // licenses.json for the menu's about page (DESIGN.md 21.2).
+    licensesPlugin({
+      serviceWorker: SERVICE_WORKER_PACKAGES,
+      server: SERVER_PACKAGES,
+    }),
     // An installable app with a service worker, as TAKO-SEN has (its
     // vite.config.ts): the screens open offline too (DESIGN.md 21.1).
     VitePWA({
@@ -56,7 +66,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // licenses.json, so the about page lists them offline too. Named
+        // alone, so no other JSON joins the precache by accident.
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2}", "licenses.json"],
         // Not needed offline: the system fetches the manifest's icons when
         // the app is added.
         globIgnores: [

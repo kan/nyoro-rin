@@ -751,6 +751,19 @@ TAKO-SEN と同じく、`vite-plugin-pwa` で manifest と Service Worker を作
 - iPhone と iPad にはボタンからインストールさせる API が無いので、メニューの中のページで、Safari の共有メニューから「ホーム画面に追加」を選ぶ手順を示します。手順は Safari を前提にした文面なので、Safari 以外のブラウザや、LINE などのアプリ内ブラウザではボタンを出しません
 - ホーム画面から開いているとき（`src/ui/install.ts` の `isStandalone()`）と、開いている画面がインストールしたアプリのウインドウへ移ったときもボタンを出しません
 
+## 21.2 このゲームについて
+
+メニューの最後に「このゲームについて」を置きます。TAKO-SEN の「TAKO-SEN について」に倣い、次を載せます。
+
+- kan-game.app のポータルへのリンクと、ID・名前・退会が kan-game.app のゲームで共通であること。利用規約とプライバシーポリシーへのリンク
+- アプリの版（`__APP_VERSION__`）。プレイログと感想に送る `appVersion` と同じ値です。感想を送った人が遊んだ版を、こちらで特定しやすくするために載せます
+- 使っているオープンソースのソフトウェアと、そのライセンス。一覧は、ビルドのとき `scripts/licenses-plugin.ts` が `licenses.json` へ書き出します
+  - 画面の分は、ビルドが実際に取り込んだパッケージから集めます。`package.json` の依存からは作りません（使っていないものが載り、使っているものが漏れるため）
+  - Service Worker の分（workbox）は `SERVICE_WORKER_PACKAGES` に書きます。ビルドの後で `scripts/check-sw-licenses.ts` が、実際に入った workbox との違いを確かめ、ずれていればビルドを失敗させます
+  - サーバー（Worker）の分は `SERVER_PACKAGES` に書きます。今は空です。`tests/licenses-plugin.test.ts` が、Worker の import とずれていないかを確かめます
+  - Vite などの LICENSE の後半にある「Licenses of bundled dependencies」の節は載せません。そのパッケージの Node 側が同梱する依存のライセンスで、画面には入らないためです
+  - `licenses.json` も Service Worker に持たせ、通信できなくても一覧を開けます
+
 ---
 
 # 22. 初期到達点

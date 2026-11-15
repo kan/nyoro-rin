@@ -951,6 +951,102 @@ dialog::backdrop {
   color: var(--color-ink-soft);
 }
 
+/* --- このゲームについて (DESIGN.md 21.2; as TAKO-SEN's) ------------------------ */
+
+.about-section h3 {
+  margin: 0 0 4px;
+  color: var(--color-ink);
+}
+
+.about-section p {
+  margin: 0 0 8px;
+}
+
+.about-portal-link,
+.about-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: inherit;
+}
+
+.about-portal-link {
+  gap: 8px;
+  text-underline-offset: 3px;
+}
+
+.about-portal-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.license-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.license-item {
+  padding: 10px 12px;
+  border: 1px solid var(--color-rule);
+  border-radius: 12px;
+  background: var(--color-surface);
+}
+
+.license-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.license-name {
+  font-weight: 700;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.license-version,
+.license-item .license-meta {
+  color: var(--color-ink-soft);
+  font-size: var(--text-caption);
+}
+
+.license-item .license-meta {
+  margin: 2px 0 6px;
+}
+
+.license-item summary {
+  min-height: 32px;
+  font-size: var(--text-small);
+  cursor: pointer;
+}
+
+.license-text {
+  max-height: 240px;
+  margin: 8px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--color-page);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- adding to the home screen (DESIGN.md 21.1) ---------------------------- */
 
 .install-steps ol {

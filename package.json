@@ -3,11 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "dev": "vite",
     "dev:all": "node scripts/dev.mjs",
     "dev:roji": "roji run nyoro-rin -- node scripts/dev.mjs",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build && node scripts/check-sw-licenses.ts",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "format": "prettier --write .",

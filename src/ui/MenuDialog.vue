@@ -12,6 +12,7 @@ import { puzzleId } from "../core/puzzle-identity";
 import { type SeedCode, parseSeedCode } from "../core/seed-code";
 import { type ResultHistory } from "../core/results";
 import { type AssistLevel, type Settings } from "../core/settings";
+import AboutPanel from "./AboutPanel.vue";
 import AccountPanel from "./AccountPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
 import InstallSteps from "./InstallSteps.vue";
@@ -33,7 +34,8 @@ export type MenuPage =
   | "seed"
   | "settings"
   | "help"
-  | "install";
+  | "install"
+  | "about";
 
 const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   top: "メニュー",
@@ -46,6 +48,7 @@ const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   settings: "設定",
   help: "遊び方",
   install: "ホーム画面に追加",
+  about: "このゲームについて",
 };
 
 const props = defineProps<{
@@ -230,6 +233,9 @@ async function copySeed(): Promise<void> {
         <button v-if="installOffer" type="button" @click="install">
           <UiIcon name="install" />ホーム画面に追加
         </button>
+        <button type="button" @click="page = 'about'">
+          <UiIcon name="about" />このゲームについて
+        </button>
       </nav>
 
       <section v-else-if="page === 'new'" class="menu-page">
@@ -364,6 +370,10 @@ async function copySeed(): Promise<void> {
 
       <section v-else-if="page === 'install'" class="menu-page">
         <InstallSteps />
+      </section>
+
+      <section v-else-if="page === 'about'" class="menu-page">
+        <AboutPanel />
       </section>
 
       <section v-else class="menu-page help">
