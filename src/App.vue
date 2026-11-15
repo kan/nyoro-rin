@@ -37,8 +37,10 @@ import { useSettings } from "./ui/use-settings";
 
 const TutorialDialog = defineAsyncComponent({
   loader: () => import("./ui/TutorialDialog.vue"),
-  // Unloaded (offline, or a page left over from an older deploy): the game
-  // goes on without it, READY included. Not marked seen, so it comes again.
+  // Unloaded: online, a page left over from an older deploy loads itself
+  // again (src/main.ts, vite:preloadError); offline, or past the reload's
+  // limit, the game goes on without it, READY included. Not marked seen, so
+  // it comes again.
   onError: (_error, _retry, fail) => {
     fail();
     if (panel.value === "tutorial") closePanel();

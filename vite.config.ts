@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
+import { VitePWA } from "vite-plugin-pwa";
 
 /**
  * The build sent with play logs and feedback: package.json's version and the
@@ -22,7 +23,62 @@ function appVersion(): string {
 }
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    // An installable app with a service worker, as TAKO-SEN has (its
+    // vite.config.ts): the screens open offline too (DESIGN.md 21.1).
+    VitePWA({
+      registerType: "autoUpdate",
+      // The manifest's icons are left to the globs below.
+      includeManifestIcons: false,
+      // Registered from src/main.ts, once the page has loaded.
+      injectRegister: false,
+      manifest: {
+        name: "NYORO-RIN",
+        short_name: "NYORO-RIN",
+        description: "にょろにょろの輪を描くロジックパズル",
+        lang: "ja",
+        // The page colour (src/styles.css --color-page).
+        theme_color: "#e9efe8",
+        background_color: "#e9efe8",
+        display: "standalone",
+        start_url: "/",
+        scope: "/",
+        icons: [
+          { src: "/pwa-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/pwa-512.png", sizes: "512x512", type: "image/png" },
+          {
+            src: "/pwa-maskable-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // Not needed offline: the system fetches the manifest's icons when
+        // the app is added.
+        globIgnores: [
+          "pwa-192.png",
+          "pwa-512.png",
+          "pwa-maskable-512.png",
+          "apple-touch-icon.png",
+        ],
+        // Every page is the app; the API is never answered from the cache.
+        // Its answers depend on the device's ID cookie, which a cache key
+        // does not see.
+        navigateFallback: "/index.html",
+        navigateFallbackDenylist: [/^\/api\//],
+        // A new version takes over at once (registerType "autoUpdate" then
+        // reloads the page); the old version's files go by the plugin's
+        // default. Without these the new worker waits until every tab of the
+        // game is closed.
+        skipWaiting: true,
+        clientsClaim: true,
+      },
+    }),
+  ],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
   },

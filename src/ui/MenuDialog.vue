@@ -3,7 +3,7 @@
  * The menu: everything that is not playing the board lives here, so the
  * play screen stays the board and a few buttons.
  */
-import { ref, shallowRef, watch } from "vue";
+import { nextTick, ref, shallowRef, watch } from "vue";
 import { type DifficultyChoice } from "../core/difficulty-choice";
 import { type FeedbackContext } from "../core/feedback";
 import { type LeaderboardEntry } from "../core/leaderboard";
@@ -14,9 +14,11 @@ import { type ResultHistory } from "../core/results";
 import { type AssistLevel, type Settings } from "../core/settings";
 import AccountPanel from "./AccountPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
+import InstallSteps from "./InstallSteps.vue";
 import LeaderboardList from "./LeaderboardList.vue";
 import RecordsPanel from "./RecordsPanel.vue";
 import UiIcon from "./UiIcon.vue";
+import { installOffer, promptInstall } from "./install";
 import { DIFFICULTY_CHOICE_LABELS } from "./labels";
 import { useModalDialog } from "./modal-dialog";
 import type { Online } from "./use-online";
@@ -30,7 +32,8 @@ export type MenuPage =
   | "feedback"
   | "seed"
   | "settings"
-  | "help";
+  | "help"
+  | "install";
 
 const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   top: "メニュー",
@@ -42,6 +45,7 @@ const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   seed: "シード",
   settings: "設定",
   help: "遊び方",
+  install: "ホーム画面に追加",
 };
 
 const props = defineProps<{
@@ -134,6 +138,19 @@ function toggle(key: "showConflicts" | "haptics", event: Event): void {
   update(key, (event.target as HTMLInputElement).checked);
 }
 
+/** The browser's install prompt, or the steps on iPhone and iPad. */
+function install(): void {
+  if (installOffer.value === "steps") {
+    page.value = "install";
+    return;
+  }
+  void promptInstall();
+  // The button goes with the prompt: keep the focus inside the menu.
+  void nextTick(() =>
+    dialog.value?.querySelector<HTMLElement>(".menu-list button")?.focus(),
+  );
+}
+
 function submitSeed(): void {
   const code = parseSeedCode(seedInput.value);
   if (!code) {
@@ -207,6 +224,11 @@ async function copySeed(): Promise<void> {
         </button>
         <button type="button" @click="page = 'help'">
           <UiIcon name="help" />遊び方
+        </button>
+        <!-- The browser's prompt, or the steps on iPhone and iPad
+             (src/ui/install.ts); hidden on the home screen. -->
+        <button v-if="installOffer" type="button" @click="install">
+          <UiIcon name="install" />ホーム画面に追加
         </button>
       </nav>
 
@@ -338,6 +360,10 @@ async function copySeed(): Promise<void> {
             <small>長押しで拡大したときに短く振動する（対応端末のみ）</small>
           </span>
         </label>
+      </section>
+
+      <section v-else-if="page === 'install'" class="menu-page">
+        <InstallSteps />
       </section>
 
       <section v-else class="menu-page help">

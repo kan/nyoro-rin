@@ -951,6 +951,17 @@ dialog::backdrop {
   color: var(--color-ink-soft);
 }
 
+/* --- adding to the home screen (DESIGN.md 21.1) ---------------------------- */
+
+.install-steps ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+
+.install-steps li + li {
+  margin-top: 8px;
+}
+
 /* --- tutorial (DESIGN.md 11.5) ------------------------------------------------ */
 
 .tutorial-count {

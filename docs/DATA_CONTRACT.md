@@ -49,6 +49,8 @@
 | `nyoro-rin.ranking-invite.v1` | ランキングへの参加の案内を出したか（JSON の `true`。DESIGN.md 第 20 章） |
 | `nyoro-rin.tutorial.v1` | チュートリアルを見たか（JSON の `true`。DESIGN.md 11.5） |
 
+`sessionStorage`（タブごと）には、`nyoro-rin.stale-chunk-reload` だけを置きます。古いファイルの読み込みに失敗して画面を読み込み直した時刻（ミリ秒）で、1 分以内に繰り返さないために使います（DESIGN.md 21.1）。
+
 プレイ中の状態には、以下を含めます。
 
 - 問題（シードコード、版、難易度、大きさ、数字、正解）

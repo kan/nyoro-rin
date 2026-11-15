@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/client" />
 
 /** The build: package.json's version and the commit (vite.config.ts). */
 declare const __APP_VERSION__: string;

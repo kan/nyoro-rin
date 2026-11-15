@@ -16,7 +16,8 @@ defineProps<{
     | "settings"
     | "help"
     | "pause"
-    | "records";
+    | "records"
+    | "install";
 }>();
 </script>
 
@@ -44,6 +45,11 @@ defineProps<{
     />
     <path v-else-if="name === 'reset'" d="M4 11a8 8 0 1 1 2 7M4 4v7h7" />
     <path v-else-if="name === 'next'" d="M4 12h12m-6-6 6 6-6 6M20 5v14" />
+    <!-- A phone with an arrow coming down into it. -->
+    <path
+      v-else-if="name === 'install'"
+      d="M8 5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1M12 2v11m-4-4 4 4 4-4"
+    />
     <template v-else-if="name === 'hint'">
       <path d="M9 16c0-3-4-4-4-7a7 7 0 0 1 14 0c0 3-4 4-4 7ZM9 19h6M10 22h4" />
       <path d="M12 16v-5m-2-2 2 2 2-2" />
