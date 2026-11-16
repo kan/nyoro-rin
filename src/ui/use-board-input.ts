@@ -17,6 +17,7 @@ import {
   zoomWindowAt,
 } from "./board-input";
 import { BoardGesture } from "./gesture";
+import { requestVibration } from "./vibration";
 
 export interface BoardInputTarget {
   readonly geometry: Readonly<Ref<BoardGeometry>>;
@@ -135,7 +136,7 @@ export function useBoardInput(target: BoardInputTarget) {
     endGesture();
     zoom.value = zoomWindowAt(target.geometry.value, center);
     target.onZoom?.();
-    if (target.haptics?.value) navigator.vibrate?.(12);
+    if (target.haptics?.value) requestVibration(12);
   }
 
   function closeZoom(): void {

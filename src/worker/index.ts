@@ -2,19 +2,41 @@
  * The HTTP API (DATA_CONTRACT.md 「API」) and the static screen. Routes are
  * matched by hand, as in TAKO-SEN; anything outside /api/ is the screen.
  */
+import { isClientUnlockable } from "../core/achievements";
 import {
   RANKING_CONSENT_VERSION,
   validateGameName,
 } from "../core/account-profile";
+import { isPlayId } from "../core/attempt";
+import {
+  dailyDate,
+  isDailyDate,
+  parseDailyCompletionUpload,
+} from "../core/daily";
 import { parseFeedbackUpload } from "../core/feedback";
 import {
   parseCompletedPlayUpload,
   verifyCompletedPlayUpload,
 } from "../core/online-play";
+import { isDifficulty } from "../core/model";
 import { parsePlayLogUpload } from "../core/play-log";
 import { isPuzzleId } from "../core/puzzle-identity";
+import { isWeeklyMetric } from "../core/weekly-ranking";
 import { sweepDeletedAccounts } from "./accounts";
+import {
+  judgeAfterClear,
+  listAchievements,
+  unlockClientAchievement,
+} from "./achievements";
 import { authenticateAccount } from "./auth";
+import {
+  completeDailyAttempt,
+  getDailyStatus,
+  listDailyHistory,
+  listDailyRanking,
+  prepareNextDailyBoard,
+  startDailyAttempt,
+} from "./daily";
 import { saveFeedback } from "./feedback";
 import {
   type SaveOutcome,
@@ -26,6 +48,8 @@ import {
 import { savePlayLog } from "./play-logs";
 import { idPlatform } from "./id-platform";
 import { listLeaderboard } from "./leaderboard";
+import { listNextPuzzleCandidates } from "./next-puzzle";
+import { listWeeklyRanking } from "./weekly-ranking";
 import { getAccountProfile, registerAccountProfile } from "./profile";
 
 const MAX_BODY_BYTES = 4096;
@@ -37,8 +61,16 @@ const MAX_PLAY_LOG_BYTES = 1024 * 1024;
 /** 1,000 characters of up to 4 bytes, and the context. */
 const MAX_FEEDBACK_BYTES = 8192;
 
-/** The daily run, which must match wrangler.jsonc's triggers. */
+/** The daily runs, which must match wrangler.jsonc's triggers. */
 export const SWEEP_CRON = "0 18 * * *";
+/** 23:00 in Japan: tomorrow's daily board (DESIGN.md 25.3). */
+export const DAILY_CRON = "0 14 * * *";
+/**
+ * 23:30 in Japan: the same again, for a 23:00 run that failed. It does
+ * nothing when the board is there. A board neither run made is made by the
+ * day's first request, which costs that request seconds of CPU.
+ */
+export const DAILY_RETRY_CRON = "30 14 * * *";
 
 type Handler = (
   env: Env,
@@ -46,12 +78,12 @@ type Handler = (
   body: unknown,
 ) => Promise<Response>;
 
-/** A route that needs the ID cookie: its GET, if any, and its POST. */
+/** A route that needs the ID cookie: its GET, its POST, or both. */
 interface AccountRoute {
-  readonly get?: (env: Env, accountId: string) => Promise<Response>;
-  readonly post: Handler;
+  readonly get?: (env: Env, accountId: string, url: URL) => Promise<Response>;
+  readonly post?: Handler;
   /** The largest body the POST takes, in bytes. */
-  readonly limit: number;
+  readonly limit?: number;
 }
 
 const ACCOUNT_ROUTES: Readonly<Record<string, AccountRoute>> = {
@@ -66,6 +98,28 @@ const ACCOUNT_ROUTES: Readonly<Record<string, AccountRoute>> = {
       json({ plays: await listCompletedPlays(env.DB, accountId) }),
     post: postPlay,
     limit: MAX_BODY_BYTES,
+  },
+  "/api/next-puzzle": { get: getNextPuzzle },
+  // Achievements need an ID only, like the history: no name or consent.
+  "/api/achievements": {
+    get: async (env, accountId) =>
+      json({
+        achievements: await listAchievements(env.DB, accountId, Date.now()),
+      }),
+  },
+  "/api/achievements/unlock": {
+    post: postAchievementUnlock,
+    limit: MAX_BODY_BYTES,
+  },
+  // The daily challenge (DESIGN.md chapter 25). The board and the records
+  // need an ID; starting needs a name and consent too.
+  "/api/daily": { get: getDaily },
+  "/api/daily/start": { post: postDailyStart, limit: MAX_BODY_BYTES },
+  "/api/daily/complete": { post: postDailyComplete, limit: MAX_BODY_BYTES },
+  "/api/daily/ranking": { get: getDailyRanking },
+  "/api/daily/history": {
+    get: async (env, accountId) =>
+      json({ plays: await listDailyHistory(env.DB, accountId) }),
   },
   "/api/play-logs": { post: postPlayLog, limit: MAX_PLAY_LOG_BYTES },
   "/api/feedback": { post: postFeedback, limit: MAX_FEEDBACK_BYTES },
@@ -88,13 +142,19 @@ export default {
     if (pathname.startsWith("/api/leaderboards/")) {
       return leaderboard(request, env, pathname);
     }
+    if (pathname === "/api/weekly-ranking") {
+      return weeklyRanking(request, env);
+    }
     const route = ACCOUNT_ROUTES[pathname];
     if (!route) {
       if (pathname.startsWith("/api/"))
         return json({ error: "not_found" }, 404);
       return env.ASSETS.fetch(request);
     }
-    const methods = route.get ? ["GET", "POST"] : ["POST"];
+    const methods = [
+      ...(route.get ? ["GET"] : []),
+      ...(route.post ? ["POST"] : []),
+    ];
     if (!methods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
         Allow: methods.join(", "),
@@ -123,9 +183,11 @@ export default {
       if (auth.status === "deleted") return json({ error: "id_deleted" }, 410);
       const { accountId } = auth;
 
-      if (request.method === "GET") return await route.get!(env, accountId);
-      const body = await readJsonBody(request, route.limit);
-      return body.error ?? (await route.post(env, accountId, body.value));
+      if (request.method === "GET") {
+        return await route.get!(env, accountId, new URL(request.url));
+      }
+      const body = await readJsonBody(request, route.limit ?? MAX_BODY_BYTES);
+      return body.error ?? (await route.post!(env, accountId, body.value));
     } catch (error) {
       logError("api_failure", error);
       return json({ error: "service_unavailable" }, 503);
@@ -133,13 +195,29 @@ export default {
   },
 
   async scheduled(controller, env): Promise<void> {
-    if (controller.cron !== SWEEP_CRON) {
-      console.error(
-        JSON.stringify({ event: "unknown_cron", cron: controller.cron }),
+    if (controller.cron === SWEEP_CRON) {
+      await sweepDeletedAccounts(env.DB);
+      return;
+    }
+    if (
+      controller.cron === DAILY_CRON ||
+      controller.cron === DAILY_RETRY_CRON
+    ) {
+      // A failure here is retried at 23:30, then by the day's first request.
+      if (!env.DAILY_SEED_SECRET) {
+        logError("daily_prepare_failure", "DAILY_SEED_SECRET is not set");
+        return;
+      }
+      await prepareNextDailyBoard(
+        env.DB,
+        env.DAILY_SEED_SECRET,
+        controller.scheduledTime,
       );
       return;
     }
-    await sweepDeletedAccounts(env.DB);
+    console.error(
+      JSON.stringify({ event: "unknown_cron", cron: controller.cron }),
+    );
   },
 } satisfies ExportedHandler<Env>;
 
@@ -172,6 +250,33 @@ async function leaderboard(
     return json({ entries: await listLeaderboard(env.DB, id, viewer) });
   } catch (error) {
     logError("leaderboard_read_failure", error);
+    return json({ error: "service_unavailable" }, 503);
+  }
+}
+
+/**
+ * GET /api/weekly-ranking?difficulty=easy|normal|hard&metric=clears|score:
+ * this week's players, readable without an ID. A cookie only marks the
+ * viewer's own row.
+ */
+async function weeklyRanking(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") {
+    return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
+  }
+  const params = new URL(request.url).searchParams;
+  const difficulty = params.get("difficulty");
+  const metric = params.get("metric");
+  if (!isDifficulty(difficulty) || !isWeeklyMetric(metric)) {
+    return json({ error: "invalid_query" }, 400);
+  }
+  try {
+    const auth = request.headers.has("Cookie")
+      ? await authenticateAccount(request, env)
+      : undefined;
+    const viewer = auth?.status === "ok" ? auth.accountId : undefined;
+    return json(await listWeeklyRanking(env.DB, difficulty, metric, viewer));
+  } catch (error) {
+    logError("weekly_ranking_read_failure", error);
     return json({ error: "service_unavailable" }, 503);
   }
 }
@@ -221,6 +326,24 @@ async function postProfile(
   }
 }
 
+/**
+ * GET /api/next-puzzle?difficulty=...: ranked boards the account has not
+ * completed, for its next puzzle (DESIGN.md 13.8).
+ */
+async function getNextPuzzle(
+  env: Env,
+  accountId: string,
+  url: URL,
+): Promise<Response> {
+  const difficulty = url.searchParams.get("difficulty");
+  if (!isDifficulty(difficulty)) {
+    return json({ error: "invalid_difficulty" }, 400);
+  }
+  return json({
+    candidates: await listNextPuzzleCandidates(env.DB, accountId, difficulty),
+  });
+}
+
 /** POST /api/plays: one verified clear, answered with the puzzle's ranking. */
 async function postPlay(
   env: Env,
@@ -248,6 +371,11 @@ async function postPlay(
     outcome = await saveCompletedPlay(env.DB, accountId, claimed);
   }
   if (outcome === "conflict") return json({ error: "play_id_conflict" }, 409);
+  // Judged only for a new record: a resend announces nothing again.
+  const newAchievements =
+    outcome === "created"
+      ? await judgeAfterClear(env.DB, accountId, claimed.playId, Date.now())
+      : [];
   // The screen shows this board's ranking right after a clear; returning it
   // here saves a second request. The record is stored either way.
   const entries = await listLeaderboard(
@@ -255,7 +383,141 @@ async function postPlay(
     claimed.puzzleId,
     accountId,
   ).catch(() => undefined);
-  return json({ status: outcome, entries }, outcome === "created" ? 201 : 200);
+  return json(
+    { status: outcome, entries, newAchievements },
+    outcome === "created" ? 201 : 200,
+  );
+}
+
+/** A daily request without the seed key set: nothing to make boards with. */
+function dailyUnavailable(env: Env): Response | undefined {
+  if (env.DAILY_SEED_SECRET) return undefined;
+  logError("daily_unavailable", "DAILY_SEED_SECRET is not set");
+  return json({ error: "daily_unavailable" }, 503);
+}
+
+/**
+ * GET /api/daily: today's board without its solution, and whether the ID
+ * has started or completed it. Makes the board if the scheduled run missed.
+ */
+async function getDaily(env: Env, accountId: string): Promise<Response> {
+  return (
+    dailyUnavailable(env) ??
+    json(
+      await getDailyStatus(
+        env.DB,
+        env.DAILY_SEED_SECRET,
+        accountId,
+        Date.now(),
+      ),
+    )
+  );
+}
+
+/**
+ * POST /api/daily/start, at READY's OK: takes the ID's one challenge of the
+ * day. Only a named player who consented to the ranking may take it.
+ */
+async function postDailyStart(
+  env: Env,
+  accountId: string,
+  body: unknown,
+): Promise<Response> {
+  const unavailable = dailyUnavailable(env);
+  if (unavailable) return unavailable;
+  const { date, playId } = (body ?? {}) as { date?: unknown; playId?: unknown };
+  if (!isDailyDate(date) || !isPlayId(playId)) {
+    return json({ error: "invalid_daily_start" }, 400);
+  }
+  if (!(await getAccountProfile(env.DB, accountId))) {
+    return json({ error: "profile_required" }, 403);
+  }
+  const outcome = await startDailyAttempt(
+    env.DB,
+    env.DAILY_SEED_SECRET,
+    accountId,
+    date,
+    playId,
+    Date.now(),
+  );
+  if (outcome === "started") return json({ status: outcome }, 201);
+  if (outcome === "duplicate") return json({ status: outcome });
+  return json({ error: "daily_unavailable_to_start", status: outcome }, 409);
+}
+
+/**
+ * POST /api/daily/complete: the loop is checked against the stored
+ * solution; answered with the day's ranking, as a clear is.
+ */
+async function postDailyComplete(
+  env: Env,
+  accountId: string,
+  body: unknown,
+): Promise<Response> {
+  const upload = parseDailyCompletionUpload(body);
+  if (!upload) return json({ error: "invalid_daily_completion" }, 400);
+  const outcome = await completeDailyAttempt(
+    env.DB,
+    accountId,
+    upload,
+    Date.now(),
+  );
+  if (outcome === "invalid_solution" || outcome === "invalid_time") {
+    return json({ error: outcome }, 400);
+  }
+  if (outcome === "not_started" || outcome === "expired") {
+    return json({ error: "daily_not_started", status: outcome }, 409);
+  }
+  // Judged only for a new completion, as for a clear (DATA_CONTRACT.md 「実績」).
+  const newAchievements =
+    outcome === "completed"
+      ? await judgeAfterClear(env.DB, accountId, upload.playId, Date.now())
+      : [];
+  const entries = await listDailyRanking(env.DB, upload.date, accountId).catch(
+    () => undefined,
+  );
+  return json(
+    { status: outcome, entries, newAchievements },
+    outcome === "completed" ? 201 : 200,
+  );
+}
+
+/** GET /api/daily/ranking?date=YYYY-MM-DD: a day up to today. */
+async function getDailyRanking(
+  env: Env,
+  accountId: string,
+  url: URL,
+): Promise<Response> {
+  const date = url.searchParams.get("date");
+  if (!isDailyDate(date) || date > dailyDate(Date.now())) {
+    return json({ error: "invalid_date" }, 400);
+  }
+  return json({
+    date,
+    entries: await listDailyRanking(env.DB, date, accountId),
+  });
+}
+
+/**
+ * POST /api/achievements/unlock: one the screen reports (the tutorial's
+ * end). Any other id is refused: the rest are judged from the records.
+ */
+async function postAchievementUnlock(
+  env: Env,
+  accountId: string,
+  body: unknown,
+): Promise<Response> {
+  const id = (body as { id?: unknown } | null)?.id;
+  if (!isClientUnlockable(id)) {
+    return json({ error: "invalid_achievement" }, 400);
+  }
+  const created = await unlockClientAchievement(
+    env.DB,
+    accountId,
+    id as string,
+    Date.now(),
+  );
+  return json({ newAchievements: created ? [id] : [] });
 }
 
 /**

@@ -113,7 +113,7 @@ kan-game.app の ID 基盤（kan/game の `wrangler dev`）、API（`wrangler de
 src/
   core/       盤面モデル・ルール・Solver・Logical Solver・定石・Generator・難易度・アシストの導出・成績・タイマー・保存・同期キュー・プレイログ・感想
   ui/         入力判定（タップ・なぞり・長押し・拡大）・ヒント表示補助・各画面のコンポーネント・盤面生成用の Web Worker・ID とオンライン処理
-  worker/     Cloudflare Workers の API（認証・履歴・プロフィール・ランキング・プレイログ・感想・GameService）
+  worker/     Cloudflare Workers の API（認証・履歴・プロフィール・ランキング・実績・プレイログ・感想・GameService）
   App.vue     画面表示と操作の連携
 migrations/   D1 のマイグレーション
 scripts/      ローカルの開発サーバー・Generator の計測・プレイログと感想の集計
@@ -158,11 +158,11 @@ Vue コンポーネントは主に以下を担当します。
 
 ### Worker
 
-`src/worker/` に、認証・完了記録の同期・プロフィール・問題別ランキング・プレイログ・感想の API と、ID 基盤から呼ばれる GameService を置きます。`src/worker/id-token.ts` と `src/worker/id-rpc.ts`、`tests/kan-game/` と `tests/id-token-vectors.json` は kan/game からの写しです。書き換えず、kan/game が変わったら写し直してください。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
+`src/worker/` に、認証・完了記録の同期・プロフィール・問題別ランキング・週間ランキング・実績・デイリー・プレイログ・感想の API と、ID 基盤から呼ばれる GameService を置きます。`src/worker/id-token.ts` と `src/worker/id-rpc.ts`、`tests/kan-game/` と `tests/id-token-vectors.json` は kan/game からの写しです（写し元は kan/game の `258c299`。それぞれ `src/token.ts`、`src/rpc.ts`、`testing/`、`test-vectors/id-token.json` の写し）。書き換えず、kan/game が変わったら写し直してください。写し直しが要るかは、kan/game で `git log 258c299.. -- src/token.ts src/rpc.ts testing test-vectors` を見て確かめます。写し直したら、ここのコミットを写し元のものに書き換えてください。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
 
 Worker は薄く保ちます。パズルの判定（盤面の再生成・問題 ID の計算・輪と正解の照合）は Core を呼び、Worker 側で再実装しないでください。
 
-Workers が利用できるという理由だけで、Solver や問題生成をサーバーへ移さないでください。通常問題はクライアントで生成し、ID や名前がなくても、オフラインでも遊べる状態を維持します。
+Workers が利用できるという理由だけで、Solver や問題生成をサーバーへ移さないでください。通常問題はクライアントで生成し、ID や名前がなくても、オフラインでも遊べる状態を維持します。例外はデイリーの盤面で、シードを secret（`DAILY_SEED_SECRET`）から作るので、サーバーだけが作ります（`docs/DESIGN.md` 25.2）。secret の値を repo・issue・ログに書かないでください。
 
 D1 のスキーマ変更はマイグレーションを追加して行い、適用済みのマイグレーションを書き換えないでください。リモートの D1 への適用とデプロイは、利用者の承認を得てから行ってください。
 
@@ -200,7 +200,7 @@ UI 由来の表現をゲーム状態として使用しないでください。
 
 プレイヤーの × と、アシストの自動 × は別概念です。自動 × をプレイヤーの状態として保存しないでください。
 
-通常問題は 7 × 7、デイリー（次フェーズ）は 10 × 10 です。盤面サイズはこの 2 つだけで、Core アルゴリズムの可読性を損なうような不要なマジックナンバー依存は避けてください。任意サイズの選択 UI や、難易度ごとのサイズ変更は行いません。
+通常問題は 7 × 7、デイリーは 10 × 10 です。盤面サイズはこの 2 つだけで、Core アルゴリズムの可読性を損なうような不要なマジックナンバー依存は避けてください。任意サイズの選択 UI や、難易度ごとのサイズ変更は行いません。
 
 ## Solver の分離
 
@@ -305,6 +305,15 @@ Solver や Generator の不具合を修正する場合は、可能な限りそ�
 
 ドメインレベルで検証できる内容について、アニメーション時間などの UI 実装詳細へ依存するテストは避けてください。
 
+テストは `vitest.config.ts` の 2 つの project で動きます。
+
+- `node`: Core、Generator、画面の補助、scripts のテスト
+- `worker`: Worker のテスト（`tests/worker-*.test.ts`）。`@cloudflare/vitest-plugin` で Workers のランタイム（workerd）の上で動かします。旧名の `@cloudflare/vitest-pool-workers` を入れないでください
+  - Worker は `tests/wrangler.jsonc`（本物の entry と、メモリ上の D1）で動きます。マイグレーションは `tests/apply-migrations.ts` がテストファイルごとに当てます
+  - HTTP の API は `tests/worker-env.ts` の `call` で、env の一部（`ID` を `fake-id-platform` にするなど）を `workerEnv` で差し替えて呼びます
+  - GameService は `cloudflare:workers` の `exports.GameService` から、本物の entrypoint を通して呼びます
+  - テスト用の binding を足したら `tests/env.d.ts` に型を足してください
+
 ## 入力と操作
 
 入力仕様は `docs/DESIGN.md` 第 7 章を参照してください。
@@ -395,7 +404,7 @@ Solver や Generator を Vue のリアクティビティ等へ不要に結合せ
 
 特に以下は実装しないでください。
 
-- デイリー・週間ランキング・実績・通知（次フェーズ）
+- デイリーの通知（次フェーズ）
 - 共有リンク（シードコードの共有で代える）
 - 課金
 - 広告

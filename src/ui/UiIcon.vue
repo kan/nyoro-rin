@@ -18,7 +18,9 @@ defineProps<{
     | "pause"
     | "records"
     | "install"
-    | "about";
+    | "about"
+    | "achievements"
+    | "calendar";
 }>();
 </script>
 
@@ -89,5 +91,15 @@ defineProps<{
     </template>
     <path v-else-if="name === 'pause'" d="M9 5v14M15 5v14" />
     <path v-else-if="name === 'records'" d="M4 20h16M7 16V10m5 6V5m5 11v-4" />
+    <!-- A medal on its ribbon. -->
+    <template v-else-if="name === 'achievements'">
+      <path d="m8 3 4 7 4-7" />
+      <circle cx="12" cy="15" r="6" />
+    </template>
+    <template v-else-if="name === 'calendar'">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+      <path d="M8 15h3" />
+    </template>
   </svg>
 </template>

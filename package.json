@@ -25,6 +25,7 @@
     "deploy:production": "npm run build && npm run db:migrate:production && wrangler deploy --env production"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.8.2",
     "@types/node": "^26.6.6",
     "@vitejs/plugin-vue": "^6.0.10",
     "prettier": "^3.10.0",

@@ -127,20 +127,36 @@ export function repositoryUrl(pkg: Record<string, unknown>): string | null {
     : null;
 }
 
+/**
+ * Every licence file of the package, in name order, joined: a dual-licensed
+ * package ships both (LICENSE-APACHE and LICENSE-MIT). Files only: a
+ * "licenses/" directory or the like is not one. Null without any.
+ */
+export function licenseText(dir: string, name: string): string | null {
+  const files = fs
+    .readdirSync(dir)
+    .filter(
+      (file) =>
+        LICENSE_FILE.test(file) &&
+        // statSync follows a symlinked LICENSE, as reading it does.
+        fs.statSync(path.join(dir, file)).isFile(),
+    )
+    .sort();
+  // The same text in two formats (LICENSE and LICENSE.md) shows once; an
+  // empty file shows nothing.
+  const texts = new Set(
+    files
+      .map((file) =>
+        ownLicense(name, fs.readFileSync(path.join(dir, file), "utf8")),
+      )
+      .filter((text) => text !== ""),
+  );
+  return texts.size > 0 ? [...texts].join("\n\n----\n\n") : null;
+}
+
 function readEntry(dir: string): Omit<LicenseEntry, "usedIn"> {
   const pkg = readJson(path.join(dir, "package.json"));
   const name = pkg.name as string;
-  // Every licence file, in name order: a dual-licensed package ships both
-  // (LICENSE-APACHE and LICENSE-MIT). Files only: a "licenses/" directory or
-  // the like is not one.
-  const texts = fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && LICENSE_FILE.test(entry.name))
-    .map((entry) => entry.name)
-    .sort()
-    .map((file) =>
-      ownLicense(name, fs.readFileSync(path.join(dir, file), "utf8")),
-    );
   const license = pkg.license as string | { type?: string } | undefined;
   return {
     name,
@@ -148,7 +164,7 @@ function readEntry(dir: string): Omit<LicenseEntry, "usedIn"> {
     license:
       (typeof license === "string" ? license : license?.type) ?? "UNKNOWN",
     url: repositoryUrl(pkg),
-    text: texts.length > 0 ? texts.join("\n\n----\n\n") : null,
+    text: licenseText(dir, name),
   };
 }
 
@@ -168,6 +184,34 @@ export function ownLicense(name: string, text: string): string {
     ? text.search(BUNDLED_DEPENDENCIES)
     : -1;
   return (at < 0 ? text : text.slice(0, at)).trim();
+}
+
+const USE_ORDER: readonly LicenseUse[] = ["app", "sw", "server"];
+
+/**
+ * One entry per name@version, with the uses of every copy: npm can leave the
+ * same version in two node_modules paths, and the about page keys its rows
+ * by name@version.
+ */
+export function mergeCopies(
+  copies: Iterable<
+    readonly [entry: Omit<LicenseEntry, "usedIn">, used: Set<LicenseUse>]
+  >,
+): LicenseEntry[] {
+  const byPackage = new Map<
+    string,
+    { entry: Omit<LicenseEntry, "usedIn">; used: Set<LicenseUse> }
+  >();
+  for (const [entry, used] of copies) {
+    const key = `${entry.name}@${entry.version}`;
+    const seen = byPackage.get(key);
+    if (seen) for (const use of used) seen.used.add(use);
+    else byPackage.set(key, { entry, used: new Set(used) });
+  }
+  return [...byPackage.values()].map(({ entry, used }) => ({
+    ...entry,
+    usedIn: USE_ORDER.filter((u) => used.has(u)),
+  }));
 }
 
 export function licensesPlugin(options: {
@@ -228,29 +272,15 @@ export function licensesPlugin(options: {
       add(withDependencies(options.serviceWorker, root), "sw");
       add(withDependencies(options.server, root), "server");
 
-      // One entry per name@version: npm can leave the same version in two
-      // node_modules paths, and the page keys its rows by name@version.
-      const byPackage = new Map<
-        string,
-        { entry: Omit<LicenseEntry, "usedIn">; used: Set<LicenseUse> }
-      >();
-      for (const [dir, used] of uses) {
-        const entry = readEntry(dir);
-        const key = `${entry.name}@${entry.version}`;
-        const seen = byPackage.get(key);
-        if (seen) for (const use of used) seen.used.add(use);
-        else byPackage.set(key, { entry, used: new Set(used) });
-      }
-      const entries: LicenseEntry[] = [
-        ...[...byPackage.values()].map(({ entry, used }) => ({
-          ...entry,
-          usedIn: (["app", "sw", "server"] as const).filter((u) => used.has(u)),
-        })),
-        ...[...oxcVersions].map((version) => ({
-          ...oxcRuntimeEntry(version),
-          usedIn: ["app" as const],
-        })),
-      ];
+      // The oxc helpers go through the merge too, should the same version
+      // also be installed as a package.
+      const entries = mergeCopies([
+        ...[...uses].map(([dir, used]) => [readEntry(dir), used] as const),
+        ...[...oxcVersions].map(
+          (version) =>
+            [oxcRuntimeEntry(version), new Set(["app" as const])] as const,
+        ),
+      ]);
       entries.sort(
         (a, b) =>
           a.name.localeCompare(b.name) || a.version.localeCompare(b.version),

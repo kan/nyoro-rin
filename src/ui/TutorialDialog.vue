@@ -46,7 +46,11 @@ const props = defineProps<{
   assist: AssistLevel;
   showConflicts: boolean;
 }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{
+  close: [];
+  /** The last step was solved: the tutorial was finished. */
+  complete: [];
+}>();
 
 const lesson = tutorialLesson();
 const { geometry, clues, solution, steps } = lesson;
@@ -174,6 +178,7 @@ function advance(): void {
   if (free.value) {
     input.endGesture();
     phase.value = "lap";
+    emit("complete");
     return;
   }
   stroke = undefined;

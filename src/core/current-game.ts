@@ -22,7 +22,12 @@ import {
 } from "./play";
 import { type PlayTimer, pauseTimer } from "./play-timer";
 import { edgesWithState, isSolved, statesFromLines } from "./rules";
-import { encodeSeedCode, parseSeedCode } from "./seed-code";
+import {
+  DAILY_DIFFICULTY,
+  DAILY_VERSION,
+  dailyDateOfSeedCode,
+} from "./daily-code";
+import { type SeedCode, encodeSeedCode, parseSeedCode } from "./seed-code";
 import { type KeyValueStorage, isRecord, readJson, writeJson } from "./storage";
 
 export const CURRENT_GAME_KEY = "nyoro-rin.current-game.v1";
@@ -113,12 +118,31 @@ function isEdgeList(
   );
 }
 
-function parsePuzzle(value: unknown): Puzzle | undefined {
+export interface ParseGameOptions {
+  /**
+   * A daily board (DESIGN.md chapter 25), saved apart from the ordinary one:
+   * its seed code is the daily board's name, not a seed.
+   */
+  readonly daily?: boolean;
+}
+
+/** The daily board's name read as a seed code: the date as the seed. */
+function dailyCode(seedCode: string): SeedCode | undefined {
+  const date = dailyDateOfSeedCode(seedCode);
+  return date === undefined
+    ? undefined
+    : { version: DAILY_VERSION, difficulty: DAILY_DIFFICULTY, seed: date };
+}
+
+function parsePuzzle(
+  value: unknown,
+  options: ParseGameOptions,
+): Puzzle | undefined {
   if (!isRecord(value)) return undefined;
   const { seedCode, generatorVersion, difficulty, size, clues, solution } =
     value;
   if (typeof seedCode !== "string") return undefined;
-  const code = parseSeedCode(seedCode);
+  const code = options.daily ? dailyCode(seedCode) : parseSeedCode(seedCode);
   if (
     !code ||
     code.version !== generatorVersion ||
@@ -217,9 +241,12 @@ function parseTimer(value: unknown): PlayTimer | undefined {
   return { status, elapsedMs };
 }
 
-export function parseGame(value: unknown): CurrentGame | undefined {
+export function parseGame(
+  value: unknown,
+  options: ParseGameOptions = {},
+): CurrentGame | undefined {
   if (!isRecord(value) || value.version !== 1) return undefined;
-  const puzzle = parsePuzzle(value.puzzle);
+  const puzzle = parsePuzzle(value.puzzle, options);
   const attempt = parseAttempt(value);
   const timer = parseTimer(value.timer);
   if (!puzzle || !attempt || !timer) return undefined;
@@ -247,7 +274,7 @@ export function parseGame(value: unknown): CurrentGame | undefined {
 export function loadCurrentGame(
   storage: KeyValueStorage,
 ): CurrentGame | undefined {
-  return readJson(storage, CURRENT_GAME_KEY, parseGame);
+  return readJson(storage, CURRENT_GAME_KEY, (value) => parseGame(value));
 }
 
 export function saveCurrentGame(

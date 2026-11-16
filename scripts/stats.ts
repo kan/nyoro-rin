@@ -6,7 +6,10 @@
  * player's rows from another's.
  *
  *   npm run stats -- <report> [--env local|dev|production] [--days N]
- *                    [--difficulty easy|normal|hard] [--limit N]
+ *                    [--difficulty easy|normal|hard|daily] [--limit N]
+ *
+ * The daily challenge (DESIGN.md chapter 25) is its own group, "daily",
+ * apart from the ordinary hard boards; --difficulty daily reads it alone.
  *
  * Reports:
  *   summary   per difficulty: attempts, clears, abandons, time, hints, assist
@@ -35,6 +38,11 @@ import {
 import { type PlayLogEvent, isPlayLogEvent } from "../src/core/play-log";
 import { percentile, replayPlayLog } from "../src/core/play-log-analysis";
 import { parseSeedCode } from "../src/core/seed-code";
+import {
+  DAILY_VERSION,
+  dailyDateOfSeedCode,
+  dailyPuzzle,
+} from "../src/core/daily";
 
 /** A wait this long on one board counts as being stuck. */
 const STALL_MS = 60_000;
@@ -57,7 +65,9 @@ if (!["local", "dev", "production"].includes(env)) {
 const days = Number(option("days") ?? 30);
 const since = Date.now() - days * 86_400_000;
 const difficulty = option("difficulty");
-if (difficulty && !isDifficulty(difficulty)) {
+/** The groups a report prints: the difficulties, then the daily board. */
+const GROUPS = [...DIFFICULTIES, "daily"] as const;
+if (difficulty && !isDifficulty(difficulty) && difficulty !== "daily") {
   throw new Error(`Unknown --difficulty ${difficulty}.`);
 }
 const limit = Number(option("limit") ?? 30);
@@ -112,9 +122,21 @@ function pages<T extends { row: number }>(sql: (after: number) => string): T[] {
 /** A literal for SQL; only our own option values reach here. */
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
-const difficultyFilter = difficulty
-  ? `AND difficulty = ${literal(difficulty)}`
-  : "";
+/** The rows of the group asked for; daily rows by their version. */
+const difficultyFilter =
+  difficulty === "daily"
+    ? `AND generator_version = ${literal(DAILY_VERSION)}`
+    : difficulty
+      ? `AND difficulty = ${literal(difficulty)} AND generator_version <> ${literal(DAILY_VERSION)}`
+      : "";
+/** The same for feedback, which names its board by the seed code only. */
+const dailyCodePattern = literal(`NYORO:${DAILY_VERSION}:%`);
+const feedbackFilter =
+  difficulty === "daily"
+    ? `AND seed_code LIKE ${dailyCodePattern}`
+    : difficulty
+      ? `AND difficulty = ${literal(difficulty)} AND seed_code NOT LIKE ${dailyCodePattern}`
+      : "";
 
 interface LogRow {
   row: number;
@@ -130,10 +152,11 @@ interface LogRow {
   events: string;
 }
 
-/** The columns of LogRow, but the events. */
+/** The columns of LogRow, but the events; a daily log's group is "daily". */
 const LOG_COLUMNS = `rowid AS row, substr(account_id, 1, 8) AS account,
-  play_id, seed_code, difficulty, outcome, elapsed_ms, hints_used,
-  max_assist, app_version`;
+  play_id, seed_code,
+  CASE WHEN generator_version = ${literal(DAILY_VERSION)} THEN 'daily' ELSE difficulty END AS difficulty,
+  outcome, elapsed_ms, hints_used, max_assist, app_version`;
 
 function readLogs(withEvents: boolean): LogRow[] {
   return pages<LogRow>(
@@ -153,14 +176,45 @@ const boards = new Map<string, Puzzle>();
 function boardOf(seedCode: string): Puzzle | undefined {
   let puzzle = boards.get(seedCode);
   if (!puzzle) {
-    const code = parseSeedCode(seedCode);
-    if (!code) return undefined;
-    puzzle = generatePuzzle(code.seed, code.difficulty, {
-      version: code.version,
-    }).puzzle;
+    const date = dailyDateOfSeedCode(seedCode);
+    if (date) {
+      // A daily board cannot be made from its name: it is read from D1.
+      puzzle = dailyBoardOf(date);
+      if (!puzzle) return undefined;
+    } else {
+      const code = parseSeedCode(seedCode);
+      if (!code) return undefined;
+      puzzle = generatePuzzle(code.seed, code.difficulty, {
+        version: code.version,
+      }).puzzle;
+    }
     boards.set(seedCode, puzzle);
   }
   return puzzle;
+}
+
+/** A day's board as stored, solution included. */
+function dailyBoardOf(date: string): Puzzle | undefined {
+  const [row] = query<{
+    puzzle_id: string;
+    generator_version: string;
+    clues_json: string;
+    solution_json: string;
+  }>(
+    `SELECT puzzle_id, generator_version, clues_json, solution_json
+     FROM daily_puzzles WHERE challenge_date = ${literal(date)}`,
+  );
+  if (!row) return undefined;
+  return dailyPuzzle(
+    {
+      date,
+      puzzleId: row.puzzle_id,
+      generatorVersion: row.generator_version,
+      size: 10,
+      clues: JSON.parse(row.clues_json),
+    },
+    JSON.parse(row.solution_json),
+  );
 }
 
 function eventsOf(row: LogRow): PlayLogEvent[] {
@@ -219,7 +273,7 @@ function byDifficulty<T extends { difficulty: string }>(
   items: readonly T[],
   print: (here: readonly T[]) => void,
 ): void {
-  for (const level of DIFFICULTIES) {
+  for (const level of GROUPS) {
     const here = items.filter((item) => item.difficulty === level);
     if (here.length === 0) continue;
     console.log(`### ${level}\n`);
@@ -247,7 +301,7 @@ function summary(): void {
       "ヒント 0 回のクリア",
       "アシストなしのクリア",
     ],
-    DIFFICULTIES.map((level) => {
+    GROUPS.map((level) => {
       const all = logs.filter((l) => l.difficulty === level);
       const cleared = all.filter((l) => l.outcome === "cleared");
       return [
@@ -428,7 +482,7 @@ function feedback(): void {
     `SELECT created_at, substr(account_id, 1, 8) AS account, body, source,
        play_id, seed_code, cleared, elapsed_seconds, hints_used, max_assist,
        app_version
-     FROM feedback WHERE created_at >= ${since} ${difficultyFilter}
+     FROM feedback WHERE created_at >= ${since} ${feedbackFilter}
      ORDER BY created_at DESC LIMIT ${limit}`,
   );
   console.log(`## 感想（新しい順に ${rows.length} 件）\n`);

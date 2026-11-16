@@ -6,6 +6,7 @@
 import { isCount, isPlayId } from "./attempt";
 import { type Difficulty, isDifficulty } from "./model";
 import { MAX_APP_VERSION_LENGTH } from "./play-log";
+import { DAILY_VERSION, isRecordedSeedCode } from "./daily-code";
 import { isSeedCodeOf, parseSeedCode } from "./seed-code";
 import { type AssistLevel, isAssistLevel } from "./settings";
 import { type KeyValueStorage, isRecord, readJson, writeJson } from "./storage";
@@ -66,10 +67,14 @@ export function parseFeedbackContext(
     (seedCode === null) !== (difficulty === null) ||
     (seedCode !== null &&
       (typeof seedCode !== "string" ||
-        !isSeedCodeOf(
-          seedCode,
-          parseSeedCode(seedCode)?.version,
-          difficulty,
+        !(
+          isSeedCodeOf(
+            seedCode,
+            parseSeedCode(seedCode)?.version,
+            difficulty,
+          ) ||
+          // The daily board goes by its name (DESIGN.md 25.2).
+          isRecordedSeedCode(seedCode, DAILY_VERSION, difficulty)
         ))) ||
     (difficulty !== null && !isDifficulty(difficulty)) ||
     typeof cleared !== "boolean" ||

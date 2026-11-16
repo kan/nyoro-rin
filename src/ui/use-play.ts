@@ -26,6 +26,8 @@ import {
   type PlayLogEvent,
   type PlayLogUpload,
   type PlayOutcome,
+  DAILY_PLAY_LOG_KEY,
+  PLAY_LOG_KEY,
   appendEvent,
   changesBetween,
   emptyPlayLog,
@@ -34,7 +36,12 @@ import {
   savePlayLog,
 } from "../core/play-log";
 import { boardGeometry } from "../core/board";
-import { loadCurrentGame, saveCurrentGame } from "../core/current-game";
+import {
+  type CurrentGame,
+  loadCurrentGame,
+  saveCurrentGame,
+} from "../core/current-game";
+import { loadDailyGame, saveDailyGame } from "../core/daily";
 import { CURRENT_GENERATOR_VERSION } from "../core/generator";
 import { type Difficulty, type EdgeState, type Puzzle } from "../core/model";
 import {
@@ -73,9 +80,15 @@ import {
   lineEdges,
   loopVertices,
 } from "../core/rules";
+import { pickRankedPuzzle } from "../core/next-puzzle";
+import { puzzleId } from "../core/puzzle-identity";
 import { type SeedCode, encodeSeedCode } from "../core/seed-code";
 import { type Settings } from "../core/settings";
-import { PuzzleGenerator, randomSeed } from "./puzzle-generation";
+import {
+  PuzzleGenerator,
+  SupersededError,
+  randomSeed,
+} from "./puzzle-generation";
 import { browserStorage } from "./browser-storage";
 
 /**
@@ -100,6 +113,27 @@ function createId(): string {
   ]
     .map((part) => part.join(""))
     .join("-");
+}
+
+function seedCodeOf(puzzle: Puzzle): string {
+  return encodeSeedCode({
+    version: puzzle.generatorVersion,
+    difficulty: puzzle.difficulty,
+    seed: puzzle.seed,
+  });
+}
+
+/**
+ * The daily challenge on the board (DESIGN.md chapter 25). Its board is saved
+ * apart, per ID and date; it never goes into the local records, which are
+ * the ordinary boards'.
+ */
+export interface DailySession {
+  readonly account: string;
+  readonly date: string;
+  readonly puzzleId: string;
+  /** Whether the server took the challenge (READY's OK was answered). */
+  readonly started: boolean;
 }
 
 export interface PlayOptions {
@@ -128,6 +162,8 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   const now = ref(Date.now());
   const loading = ref(false);
   const failure = ref<string>();
+  /** Set while the day's board is played instead of an ordinary one. */
+  const daily = shallowRef<DailySession>();
   let stroke: Stroke | undefined;
   /** What the player did in this attempt (src/core/play-log.ts). */
   let log: PlayLog = emptyPlayLog("");
@@ -137,6 +173,12 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   let recordedPlayId: string | undefined;
   /** Only the latest request may replace the board. */
   let latestRequest = 0;
+  /**
+   * Boards shown in this visit, which a ranked candidate must not repeat;
+   * boards of earlier visits are in the history once played.
+   */
+  const shownSeedCodes = new Set<string>();
+  const shownPuzzleIds = new Set<string>();
 
   const geometry = computed(() => boardGeometry(puzzle.value?.size ?? 7));
 
@@ -203,13 +245,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   );
 
   const seedCode = computed(() =>
-    puzzle.value
-      ? encodeSeedCode({
-          version: puzzle.value.generatorVersion,
-          difficulty: puzzle.value.difficulty,
-          seed: puzzle.value.seed,
-        })
-      : "",
+    puzzle.value ? seedCodeOf(puzzle.value) : "",
   );
 
   /** Whether any line or × is on the board, which leaving would lose. */
@@ -224,17 +260,20 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   function saveGame(): void {
     if (!storage || !puzzle.value || !attempt.value) return;
     lastSaved = Date.now();
-    savePlayLog(storage, log);
-    saveCurrentGame(
-      storage,
-      {
-        puzzle: puzzle.value,
-        attempt: attempt.value,
-        board: board.value,
-        timer: timer.value,
-      },
-      lastSaved,
-    );
+    const game: CurrentGame = {
+      puzzle: puzzle.value,
+      attempt: attempt.value,
+      board: board.value,
+      timer: timer.value,
+    };
+    const session = daily.value;
+    if (session) {
+      savePlayLog(storage, log, DAILY_PLAY_LOG_KEY);
+      saveDailyGame(storage, session.account, session.date, game, lastSaved);
+      return;
+    }
+    savePlayLog(storage, log, PLAY_LOG_KEY);
+    saveCurrentGame(storage, game, lastSaved);
   }
 
   /**
@@ -266,6 +305,8 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     // Once per attempt; the board changes on every edge of a stroke.
     if (!current || recordedPlayId === current.playId) return;
     recordedPlayId = current.playId;
+    // The day's board is recorded by the server, not in the local records.
+    if (daily.value) return;
     updateHistory((saved) => startPlay(saved, playedPuzzle(), current));
   }
 
@@ -273,6 +314,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     const current = attempt.value;
     if (!current) return;
     recordedPlayId = current.playId;
+    if (daily.value) return;
     const seconds = elapsedTimerSeconds(timer.value, Date.now());
     updateHistory((saved) =>
       finishPlay(saved, playedPuzzle(), current, Date.now(), seconds),
@@ -386,6 +428,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   function restore(): boolean {
     const saved = storage && loadCurrentGame(storage);
     if (!saved) return false;
+    daily.value = undefined;
     puzzle.value = saved.puzzle;
     board.value = saved.board;
     attempt.value = saved.attempt;
@@ -403,22 +446,32 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     return true;
   }
 
-  async function load(code: SeedCode): Promise<boolean> {
+  /**
+   * Replaces the board with the one `make` produces; `current` tells it
+   * whether a newer request has replaced this one.
+   */
+  async function begin(
+    make: (current: () => boolean) => Promise<Puzzle>,
+  ): Promise<boolean> {
     latestRequest += 1;
     const request = latestRequest;
+    // Saves the board being left, the day's board in its own place.
     pause();
+    // The callers leave the day's board first, to ask before the ordinary
+    // board is replaced (App.vue requestStart). Should one not, the day's
+    // board stays on screen until the new one is made, and its log is kept.
+    const leavingDaily = daily.value !== undefined;
     loading.value = true;
     failure.value = undefined;
     try {
-      const next = await generator.generate(
-        code.seed,
-        code.difficulty,
-        code.version,
-      );
+      const next = await make(() => request === latestRequest);
       if (request !== latestRequest) return false;
+      shownSeedCodes.add(seedCodeOf(next));
       stroke = undefined;
-      // The board being left unsolved: its log goes out as abandoned.
-      if (!solved.value) endLog("abandoned");
+      // The board being left unsolved: its log goes out as abandoned. The
+      // day's board is not abandoned: it is kept and can be taken up again.
+      if (!solved.value && !leavingDaily) endLog("abandoned");
+      daily.value = undefined;
       puzzle.value = next;
       board.value = emptyPlayBoard(geometry.value.edgeCount);
       attempt.value = newAttempt(createId(), Date.now(), settings.value.assist);
@@ -434,12 +487,138 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     }
   }
 
-  function startNew(difficulty: Difficulty): Promise<boolean> {
-    return load({
-      version: CURRENT_GENERATOR_VERSION,
-      difficulty,
-      seed: randomSeed(),
+  function generate(code: SeedCode): Promise<Puzzle> {
+    return generator.generate(code.seed, code.difficulty, code.version);
+  }
+
+  function load(code: SeedCode): Promise<boolean> {
+    return begin(() => generate(code));
+  }
+
+  /**
+   * A new puzzle at the difficulty. With `candidates` (the device has an
+   * ID), a ranked board other players solved comes first (DESIGN.md 13.8);
+   * without one, or when none is usable, the device makes a new board.
+   */
+  function startNew(
+    difficulty: Difficulty,
+    candidates?: (difficulty: Difficulty) => Promise<unknown>,
+  ): Promise<boolean> {
+    return begin(async (current) => {
+      const ranked =
+        candidates &&
+        (await pickRankedPuzzle(
+          difficulty,
+          {
+            puzzleIds: shownPuzzleIds,
+            seedCodes: new Set([
+              ...shownSeedCodes,
+              ...history.value.plays.map((play) => play.seedCode),
+            ]),
+          },
+          { fetchCandidates: candidates, generate, identify: puzzleId },
+          { next: Math.random },
+        ));
+      if (ranked) {
+        shownPuzzleIds.add(ranked.puzzleId);
+        return ranked.puzzle;
+      }
+      // A newer request took over while the candidates were tried.
+      if (!current()) throw new SupersededError();
+      return generate({
+        version: CURRENT_GENERATOR_VERSION,
+        difficulty,
+        seed: randomSeed(),
+      });
     });
+  }
+
+  // --- the daily challenge -----------------------------------------------------
+
+  /** Shows a saved or new game as the board, with its log. */
+  function show(game: CurrentGame, logKey: string): void {
+    stroke = undefined;
+    puzzle.value = game.puzzle;
+    board.value = game.board;
+    attempt.value = game.attempt;
+    log = storage
+      ? loadPlayLog(storage, game.attempt.playId, logKey)
+      : emptyPlayLog(game.attempt.playId);
+    setTimer(game.timer);
+  }
+
+  /**
+   * Plays the day's board instead of the ordinary one, which is saved and
+   * comes back with leaveDaily. The board left on this device for the ID and
+   * date is taken up again; `playId` is the challenge the server holds, if
+   * any, and a saved board of another attempt is not used for it.
+   */
+  function enterDaily(
+    session: Omit<DailySession, "started">,
+    next: Puzzle,
+    playId?: string,
+  ): void {
+    // A board being made for the ordinary game is not wanted any more.
+    latestRequest += 1;
+    loading.value = false;
+    failure.value = undefined;
+    pause();
+    daily.value = { ...session, started: playId !== undefined };
+    const saved =
+      storage && loadDailyGame(storage, session.account, session.date);
+    if (
+      saved &&
+      saved.puzzle.clues.join() === next.clues.join() &&
+      (playId === undefined || saved.attempt.playId === playId)
+    ) {
+      show(saved, DAILY_PLAY_LOG_KEY);
+      // Its first move made it a play, for the log (recordStart).
+      recordedPlayId =
+        hasMarks(saved.board) || saved.timer.status === "finished"
+          ? saved.attempt.playId
+          : undefined;
+    } else {
+      show(
+        {
+          puzzle: next,
+          board: emptyPlayBoard(boardGeometry(next.size).edgeCount),
+          attempt: newAttempt(
+            playId ?? createId(),
+            Date.now(),
+            settings.value.assist,
+          ),
+          timer: WAITING_TIMER,
+        },
+        DAILY_PLAY_LOG_KEY,
+      );
+      recordedPlayId = undefined;
+    }
+    saveGame();
+  }
+
+  /** The server took the day's challenge: READY's OK may run the clock. */
+  function markDailyStarted(): void {
+    if (daily.value) daily.value = { ...daily.value, started: true };
+  }
+
+  /**
+   * Back from the day's board (kept as it is) to the ordinary one. False
+   * when there was no ordinary board to come back to.
+   */
+  function leaveDaily(): boolean {
+    if (!daily.value) return true;
+    latestRequest += 1;
+    loading.value = false;
+    pause();
+    daily.value = undefined;
+    stroke = undefined;
+    if (restore()) return true;
+    // Nothing to come back to: the day's board must not be saved as the
+    // ordinary one, so it goes until the caller starts a new board.
+    puzzle.value = undefined;
+    attempt.value = undefined;
+    setTimer(WAITING_TIMER);
+    return false;
   }
 
   // --- moves ------------------------------------------------------------------
@@ -546,7 +725,11 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     canReset,
     loading,
     failure,
+    daily,
     restore,
+    enterDaily,
+    markDailyStarted,
+    leaveDaily,
     recordHintStep,
     recordNoHint,
     applyHint,

@@ -14,11 +14,14 @@ import { type ResultHistory } from "../core/results";
 import { type AssistLevel, type Settings } from "../core/settings";
 import AboutPanel from "./AboutPanel.vue";
 import AccountPanel from "./AccountPanel.vue";
+import AchievementsPanel from "./AchievementsPanel.vue";
+import DailyRankingPanel from "./DailyRankingPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
 import InstallSteps from "./InstallSteps.vue";
 import LeaderboardList from "./LeaderboardList.vue";
 import RecordsPanel from "./RecordsPanel.vue";
 import UiIcon from "./UiIcon.vue";
+import WeeklyRankingPanel from "./WeeklyRankingPanel.vue";
 import { installOffer, promptInstall } from "./install";
 import { DIFFICULTY_CHOICE_LABELS } from "./labels";
 import { useModalDialog } from "./modal-dialog";
@@ -29,6 +32,9 @@ export type MenuPage =
   | "new"
   | "records"
   | "ranking"
+  | "weekly"
+  | "daily"
+  | "achievements"
   | "account"
   | "feedback"
   | "seed"
@@ -42,6 +48,9 @@ const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   new: "新しい問題",
   records: "成績",
   ranking: "この問題のランキング",
+  weekly: "週間ランキング",
+  daily: "デイリーのランキング",
+  achievements: "実績",
   account: "アカウント",
   feedback: "感想を送る",
   seed: "シード",
@@ -66,6 +75,14 @@ const props = defineProps<{
   feedbackContext: FeedbackContext;
   /** The page the menu opens at; the top by default. */
   initialPage?: MenuPage;
+  /** The day of the daily board on screen, if one is. */
+  dailyDate?: string;
+  /**
+   * The day the daily ranking page opens at when no daily board is on
+   * screen (a day already completed). The board's own day comes first: this
+   * one is left over from the last time the ranking was opened.
+   */
+  dailyRankingDate?: string;
 }>();
 
 const settings = defineModel<Settings>("settings", { required: true });
@@ -210,8 +227,14 @@ async function copySeed(): Promise<void> {
         <button type="button" @click="page = 'records'">
           <UiIcon name="records" />成績
         </button>
-        <button type="button" @click="page = 'ranking'">
+        <button type="button" @click="page = dailyDate ? 'daily' : 'ranking'">
           <UiIcon name="records" />この問題のランキング
+        </button>
+        <button type="button" @click="page = 'weekly'">
+          <UiIcon name="records" />週間ランキング
+        </button>
+        <button type="button" @click="page = 'achievements'">
+          <UiIcon name="achievements" />実績
         </button>
         <button type="button" @click="page = 'account'">
           <UiIcon name="settings" />アカウント
@@ -260,6 +283,7 @@ async function copySeed(): Promise<void> {
           v-model:difficulty="recordsDifficulty"
           :history="history"
           :current-play-id="currentPlayId"
+          :online="online"
         />
       </section>
 
@@ -284,6 +308,30 @@ async function copySeed(): Promise<void> {
         </button>
       </section>
 
+      <section v-else-if="page === 'daily'" class="menu-page">
+        <DailyRankingPanel
+          v-if="dailyDate ?? dailyRankingDate"
+          :online="online"
+          :date="(dailyDate ?? dailyRankingDate)!"
+        />
+      </section>
+
+      <section v-else-if="page === 'achievements'" class="menu-page">
+        <AchievementsPanel :online="online" />
+      </section>
+
+      <section v-else-if="page === 'weekly'" class="menu-page">
+        <WeeklyRankingPanel :online="online" :difficulty="difficulty" />
+        <button
+          v-if="!online.profile.value"
+          type="button"
+          class="text-button"
+          @click="page = 'account'"
+        >
+          名前を決めてランキングに参加する
+        </button>
+      </section>
+
       <section v-else-if="page === 'account'" class="menu-page">
         <AccountPanel :online="online" />
       </section>
@@ -294,7 +342,10 @@ async function copySeed(): Promise<void> {
 
       <section v-else-if="page === 'seed'" class="menu-page">
         <h3>この問題のシード</h3>
-        <div class="seed-row">
+        <p v-if="!seedCode" class="note">
+          デイリーの盤面にはシードがありません。共有やシードからの復元はできません。
+        </p>
+        <div v-else class="seed-row">
           <code class="seed-code">{{ seedCode }}</code>
           <button
             type="button"
@@ -306,7 +357,9 @@ async function copySeed(): Promise<void> {
             <UiIcon name="copy" />
           </button>
         </div>
-        <p class="note" role="status">{{ copied ? "コピーしました" : "" }}</p>
+        <p v-if="seedCode" class="note" role="status">
+          {{ copied ? "コピーしました" : "" }}
+        </p>
         <h3>シードから始める</h3>
         <form class="seed-form" @submit.prevent="submitSeed">
           <input
