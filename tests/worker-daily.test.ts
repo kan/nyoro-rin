@@ -423,3 +423,108 @@ describe("making the boards", () => {
     expect(row?.puzzle_id).toBe(todayId);
   });
 });
+
+describe("daily achievements", () => {
+  /** Stand-in boards and completed challenges on past dates. */
+  async function completedOn(accountId: string, dates: readonly string[]) {
+    await DB.batch(
+      dates.flatMap((date) => [
+        DB.prepare(
+          `INSERT INTO daily_puzzles (challenge_date, generator_version, puzzle_id,
+             clues_json, solution_json, created_at)
+           VALUES (?, 'd1', 'p1:test', '[]', '[]', 0) ON CONFLICT DO NOTHING`,
+        ).bind(date),
+        DB.prepare(
+          `INSERT INTO daily_attempts (account_id, challenge_date, play_id, started_at,
+             completed_at, elapsed_seconds, hints_used, max_hint_stage, max_assist, reveals)
+           VALUES (?, ?, ?, ?, ?, 60, 0, 0, 0, 0)`,
+        ).bind(
+          accountId,
+          date,
+          crypto.randomUUID(),
+          Date.parse(`${date}T03:00:00Z`),
+          Date.parse(`${date}T03:00:00Z`),
+        ),
+      ]),
+    );
+  }
+
+  async function progress(headers: HeadersInit) {
+    const response = await call(env, "/api/achievements", { headers });
+    const body = (await response.json()) as {
+      achievements: {
+        id: string;
+        unlockedAt: number | null;
+        progress: number | null;
+      }[];
+    };
+    return new Map(body.achievements.map((item) => [item.id, item]));
+  }
+
+  it("announces the first daily clear with the completion, once", async () => {
+    const { headers } = await namedAccount();
+    const playId = crypto.randomUUID();
+    await start(headers, playId);
+    const done = await complete(headers, completion(playId));
+    expect(await done.json()).toMatchObject({
+      newAchievements: ["daily_first"],
+    });
+    const resend = await complete(headers, completion(playId));
+    expect(await resend.json()).toMatchObject({ newAchievements: [] });
+  });
+
+  it("counts completed days in a row, and the days with a clear", async () => {
+    const { id, headers } = await namedAccount();
+    // Six days in a row, a gap, then one more.
+    await completedOn(id, [
+      "2026-09-01",
+      "2026-09-02",
+      "2026-09-03",
+      "2026-09-04",
+      "2026-09-05",
+      "2026-09-06",
+      "2026-09-08",
+    ]);
+    let listed = await progress(headers);
+    expect(listed.get("daily_7")?.unlockedAt).not.toBeNull();
+    expect(listed.get("daily_streak_7")).toMatchObject({
+      unlockedAt: null,
+      progress: 6,
+    });
+    // The daily clears are days with a clear too.
+    expect(listed.get("days_7")?.unlockedAt).not.toBeNull();
+
+    // A challenge only started does not fill the gap. Its board is
+    // another player's completed day.
+    await completedOn(crypto.randomUUID(), ["2026-09-07"]);
+    await DB.prepare(
+      `INSERT INTO daily_attempts (account_id, challenge_date, play_id, started_at)
+       VALUES (?, '2026-09-07', ?, 0)`,
+    )
+      .bind(id, crypto.randomUUID())
+      .run();
+    listed = await progress(headers);
+    expect(listed.get("daily_streak_7")?.progress).toBe(6);
+
+    await completedOn(id, ["2026-09-09"]);
+    listed = await progress(headers);
+    expect(listed.get("daily_streak_7")?.progress).toBe(6);
+    await DB.prepare(
+      `UPDATE daily_attempts SET completed_at = 1, elapsed_seconds = 60,
+         hints_used = 0, max_hint_stage = 0, max_assist = 0, reveals = 0
+       WHERE account_id = ? AND challenge_date = '2026-09-07'`,
+    )
+      .bind(id)
+      .run();
+    listed = await progress(headers);
+    expect(listed.get("daily_streak_7")?.unlockedAt).not.toBeNull();
+  });
+
+  it("does not count the daily as ordinary clears", async () => {
+    const { id, headers } = await namedAccount();
+    await completedOn(id, ["2026-08-01"]);
+    const listed = await progress(headers);
+    expect(listed.get("clear_first")?.unlockedAt).toBeNull();
+    expect(listed.get("daily_first")?.unlockedAt).not.toBeNull();
+  });
+});

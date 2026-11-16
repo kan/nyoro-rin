@@ -199,7 +199,13 @@ export function useOnline() {
       if (outcome === "sent" && upload.playId === clearedPlayId) {
         const body = (await response.json()) as {
           entries?: LeaderboardEntry[];
+          newAchievements?: unknown;
         };
+        const unlocked = parseNewAchievements(body);
+        clearUnlocks.value = unlocked;
+        // Announced on the card: not new in the list any more.
+        if (unlocked.length > 0 && id.value)
+          markAchievementsSeen(storage, id.value, unlocked);
         clearRanking.value = body.entries
           ? { status: "ready", entries: body.entries }
           : { status: "offline" };

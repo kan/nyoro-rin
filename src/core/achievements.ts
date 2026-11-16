@@ -5,6 +5,7 @@
  * stored, so a new definition needs no migration of values. The order here
  * is the order of the tiles. An id is stored in D1: once released, it stays.
  */
+import { nextDailyDate } from "./daily-code";
 import { type KeyValueStorage, readJson, writeJson } from "./storage";
 
 /** What the Worker counts from an account's records. */
@@ -21,13 +22,20 @@ export type AchievementMetric =
   | "noAssistClears"
   /** Hard clears with the assist off all the way. */
   | "noAssistHardClears"
-  /** The days with a clear, as dates in Japan. */
-  | "clearDays";
+  /**
+   * The days with a clear, as dates in Japan: ordinary boards of any version
+   * and the daily challenge.
+   */
+  | "clearDays"
+  /** Completed daily challenges (DESIGN.md chapter 25). */
+  | "dailyClears"
+  /** The longest run of daily challenges completed on consecutive dates. */
+  | "dailyStreak";
 
 export type AchievementStats = Readonly<Record<AchievementMetric, number>>;
 
 export type AchievementCategory =
-  "first" | "clears" | "no-hint" | "no-assist" | "days";
+  "first" | "clears" | "no-hint" | "no-assist" | "days" | "daily";
 
 interface AchievementBase {
   readonly id: string;
@@ -167,7 +175,77 @@ export const ACHIEVEMENTS: readonly AchievementDefinition[] = [
     name: "100日クリア",
     description: "クリアした日が100日になる",
   },
+  {
+    id: "daily_first",
+    category: "daily",
+    metric: "dailyClears",
+    threshold: 1,
+    name: "デイリー初クリア",
+    description: "デイリーを初めてクリアする",
+  },
+  {
+    id: "daily_7",
+    category: "daily",
+    metric: "dailyClears",
+    threshold: 7,
+    name: "デイリー7回",
+    description: "デイリーを7回クリアする",
+  },
+  {
+    id: "daily_30",
+    category: "daily",
+    metric: "dailyClears",
+    threshold: 30,
+    name: "デイリー30回",
+    description: "デイリーを30回クリアする",
+  },
+  {
+    id: "daily_100",
+    category: "daily",
+    metric: "dailyClears",
+    threshold: 100,
+    name: "デイリー100回",
+    description: "デイリーを100回クリアする",
+  },
+  {
+    id: "daily_streak_7",
+    category: "daily",
+    metric: "dailyStreak",
+    threshold: 7,
+    name: "デイリー7日連続",
+    description: "デイリーを7日続けてクリアする",
+  },
 ];
+
+/**
+ * The longest run of consecutive dates among the daily challenges
+ * completed (a date counts once). Only completed ones are given: a day only
+ * started breaks the run.
+ */
+export function longestDailyStreak(dates: Iterable<string>): number {
+  const days = new Set(dates);
+  let longest = 0;
+  for (const date of days) {
+    // Count from the first date of each run only.
+    if (days.has(previousDate(date))) continue;
+    let length = 1;
+    for (
+      let next = nextDailyDate(date);
+      days.has(next);
+      next = nextDailyDate(next)
+    ) {
+      length += 1;
+    }
+    longest = Math.max(longest, length);
+  }
+  return longest;
+}
+
+function previousDate(date: string): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
 
 export function achievementDefinition(
   id: string,

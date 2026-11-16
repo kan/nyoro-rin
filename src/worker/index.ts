@@ -459,11 +459,16 @@ async function postDailyComplete(
   if (outcome === "not_started" || outcome === "expired") {
     return json({ error: "daily_not_started", status: outcome }, 409);
   }
+  // Judged only for a new completion, as for a clear (DATA_CONTRACT.md 「実績」).
+  const newAchievements =
+    outcome === "completed"
+      ? await judgeAfterClear(env.DB, accountId, upload.playId, Date.now())
+      : [];
   const entries = await listDailyRanking(env.DB, upload.date, accountId).catch(
     () => undefined,
   );
   return json(
-    { status: outcome, entries },
+    { status: outcome, entries, newAchievements },
     outcome === "completed" ? 201 : 200,
   );
 }

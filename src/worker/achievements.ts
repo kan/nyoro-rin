@@ -10,6 +10,7 @@ import {
   achievementProgress,
   crossedAchievementIds,
   isAchievementHidden,
+  longestDailyStreak,
   newlyUnlockedAchievementIds,
 } from "../core/achievements";
 import { GENERATOR_VERSIONS } from "../core/generator";
@@ -29,7 +30,8 @@ const JST_DAY = "(completed_at + 32400000) / 86400000";
 
 /**
  * The statement that counts an account's records. With `except` set to a
- * play's id, it counts without that play: the values before it was stored.
+ * play's id (an ordinary clear or a daily challenge: both are UUIDs), it
+ * counts without that play: the values before it was stored.
  * Null counts every play (play_id IS NOT NULL holds for all).
  */
 function statsStatement(
@@ -48,7 +50,14 @@ function statsStatement(
          COALESCE(SUM(ordinary AND max_assist = 0), 0) AS no_assist,
          COALESCE(SUM(ordinary AND max_assist = 0 AND difficulty = 'hard'), 0)
            AS no_assist_hard,
-         COUNT(DISTINCT ${JST_DAY}) AS days
+         (SELECT COUNT(*) FROM (
+            SELECT ${JST_DAY} FROM completed_plays
+            WHERE account_id = ?1 AND play_id IS NOT ?2
+            UNION
+            SELECT ${JST_DAY} FROM daily_attempts
+            WHERE account_id = ?1 AND play_id IS NOT ?2
+              AND completed_at IS NOT NULL
+          )) AS days
        FROM (
          SELECT *, generator_version IN (${ORDINARY_VERSIONS}) AS ordinary
          FROM completed_plays
@@ -68,9 +77,36 @@ interface StatsRow {
   days: number;
 }
 
-function toStats(result: D1Result): AchievementStats {
+/** The account's completed daily challenges: the dates and their plays. */
+function dailyStatement(
+  db: D1Database,
+  accountId: string,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT challenge_date, play_id FROM daily_attempts
+       WHERE account_id = ? AND completed_at IS NOT NULL`,
+    )
+    .bind(accountId);
+}
+
+interface DailyRow {
+  challenge_date: string;
+  play_id: string;
+}
+
+function toStats(
+  result: D1Result,
+  daily: readonly DailyRow[],
+  except: string | null,
+): AchievementStats {
   const row = result.results[0] as StatsRow;
+  const dates = daily
+    .filter((item) => item.play_id !== except)
+    .map((item) => item.challenge_date);
   return {
+    dailyClears: dates.length,
+    dailyStreak: longestDailyStreak(dates),
     clears: row.clears,
     hardClears: row.hard,
     noHintClears: row.no_hint,
@@ -95,6 +131,7 @@ async function readAccount(
   saved: Map<string, number>;
 }> {
   const results = await db.batch([
+    dailyStatement(db, accountId),
     statsStatement(db, accountId, null),
     ...(except === null ? [] : [statsStatement(db, accountId, except)]),
     db
@@ -107,9 +144,10 @@ async function readAccount(
     achievement_type: string;
     unlocked_at: number;
   }[];
+  const daily = results[0].results as DailyRow[];
   return {
-    stats: toStats(results[0]),
-    before: except === null ? null : toStats(results[1]),
+    stats: toStats(results[1], daily, null),
+    before: except === null ? null : toStats(results[2], daily, except),
     saved: new Map(saved.map((row) => [row.achievement_type, row.unlocked_at])),
   };
 }

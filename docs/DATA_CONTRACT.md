@@ -225,12 +225,13 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 方針は [`DESIGN.md`](./DESIGN.md) 20.4、定義は `src/core/achievements.ts` の `ACHIEVEMENTS` を正とします。`id` は D1 に保存するので、一度出したら変えません。
 
 - 判定は、本人の D1 の記録から毎回数え直す（`src/worker/achievements.ts`）。進み具合は保存せず、解除したことと日時だけを `achievements`（`account_id`、`achievement_type`、`unlocked_at`）に残す。主キーは `(account_id, achievement_type)` で、保存は `ON CONFLICT DO NOTHING`。同時の要求が同じ実績を保存しても 1 行になる
-- 数える記録は `completed_plays`。クリア数・ヒントなし（`hints_used = 0`）・アシストなし（`max_assist = 0`）・上級は、`generator_version` が通常の版（`GENERATOR_VERSIONS`）の記録だけを数える。同じ問題の再挑戦も 1 回と数える。クリアした日数は、版を問わず `completed_at` を日本時間の日付に丸めて数える
+- 数える記録は `completed_plays` と `daily_attempts`。クリア数・ヒントなし（`hints_used = 0`）・アシストなし（`max_assist = 0`）・上級は、`completed_plays` のうち `generator_version` が通常の版（`GENERATOR_VERSIONS`）の記録だけを数える。同じ問題の再挑戦も 1 回と数える。クリアした日数は、`completed_plays`（版を問わない）と完了した `daily_attempts` の `completed_at` を日本時間の日付に丸めて数える
+- デイリーの回数は `daily_attempts` のうち `completed_at` があるもの。連続日数は、完了した挑戦の `challenge_date` が続く最長の日数（`longestDailyStreak`）。開始しただけの日は途切れとする
 - 時間・ヒント・アシスト・完了日時は、ほかの成績と同じくクライアントの申告値である。実績は本人だけが見るもので、ランキングに使わないため、これを受け入れる
 - 名前と公開への同意は要らない。ID があればよい（履歴と同じ）
 - `GET /api/achievements` は、判定し直したうえで、全定義の `{ id, unlockedAt, progress }` を定義の順に `{ achievements: [...] }` で返す。`unlockedAt` は解除した時刻（epoch ミリ秒）で、未解除は `null`。`progress` は記録から判定する実績の現在値で、しきい値で頭打ちにする。画面が知らせる実績と、未解除の秘密の実績（`secret`）では `null`
 - `POST /api/achievements/unlock` は `{ id }` を受け、画面から知らせてよい実績（定義の `metric: "client"`。今は `tutorial_complete` だけ）を保存する。応答は `{ newAchievements }` で、新しく保存したら `[id]`、保存済みなら `[]`。ほかの id は `400 invalid_achievement`
-- `POST /api/plays` の `newAchievements`:
+- `POST /api/plays` と `POST /api/daily/complete` の `newAchievements`（デイリーは、新しく完了したとき（`201`）だけ判定する。除く記録はその挑戦の `play_id`）:
   - 新しく登録したとき（`201`）だけ判定する。同内容の再送（`duplicate`）では判定せず、`[]` を返す
   - 本人の全記録の集計と、その記録（`play_id`）を除いた集計を 1 回の batch で読む。条件を満たした実績はすべて保存し、応答には、除いた集計では満たさず含めた集計で満たす実績（その記録が越えさせた実績）だけを定義の順で返す。どの要求が先に保存したかによらない
   - 前の記録で満たしていた実績（導入の前の記録、一覧の取得より前の記録）は、保存はするが応答には載せない。画面は一覧で「NEW」を付ける

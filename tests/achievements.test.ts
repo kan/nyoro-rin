@@ -15,6 +15,7 @@ import {
   parseNewAchievements,
   saveTutorialPending,
   tutorialPendingFor,
+  longestDailyStreak,
   type RecordAchievement,
 } from "../src/core/achievements";
 import type { KeyValueStorage } from "../src/core/storage";
@@ -27,6 +28,8 @@ const NONE: AchievementStats = {
   noAssistClears: 0,
   noAssistHardClears: 0,
   clearDays: 0,
+  dailyClears: 0,
+  dailyStreak: 0,
 };
 
 function memoryStorage(): KeyValueStorage & { map: Map<string, string> } {
@@ -55,7 +58,32 @@ describe("achievement definitions", () => {
       "days_7",
       "days_30",
       "days_100",
+      "daily_first",
+      "daily_7",
+      "daily_30",
+      "daily_100",
+      "daily_streak_7",
     ]);
+  });
+
+  it("counts the longest run of consecutive daily dates", () => {
+    expect(longestDailyStreak([])).toBe(0);
+    expect(longestDailyStreak(["2026-11-16"])).toBe(1);
+    // Across a month and a year; a date twice counts once.
+    expect(
+      longestDailyStreak([
+        "2026-12-30",
+        "2026-12-31",
+        "2027-01-01",
+        "2027-01-01",
+        "2026-11-30",
+        "2026-12-01",
+      ]),
+    ).toBe(3);
+    // A missing day breaks the run.
+    expect(longestDailyStreak(["2026-11-01", "2026-11-02", "2026-11-04"])).toBe(
+      2,
+    );
   });
 
   it("has unique ids and names", () => {

@@ -39,6 +39,12 @@ const sign = computed<
     days_7: "7日",
     days_30: "30日",
     days_100: "100日",
+    // The daily challenge (DESIGN.md chapter 25): 毎 for every day.
+    daily_first: "毎",
+    daily_7: "毎7",
+    daily_30: "毎30",
+    daily_100: "毎100",
+    daily_streak_7: "連7",
   };
   const text = texts[props.id] ?? "";
   return { text, small: text.length >= 3 };
