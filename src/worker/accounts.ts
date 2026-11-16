@@ -16,6 +16,7 @@ export const ACCOUNT_TABLES = [
   "rate_limits",
   "play_logs",
   "feedback",
+  "achievements",
 ] as const;
 
 export async function deleteAccount(

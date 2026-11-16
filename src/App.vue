@@ -13,11 +13,13 @@ import {
   ref,
   watch,
 } from "vue";
+import { achievementDefinition } from "./core/achievements";
 import { type DifficultyChoice } from "./core/difficulty-choice";
 import { type FeedbackContext, type FeedbackSource } from "./core/feedback";
 import { completedPlay } from "./core/results";
 import { rememberTutorial, shouldShowTutorial } from "./core/tutorial";
 import { type SeedCode } from "./core/seed-code";
+import AchievementIcon from "./ui/AchievementIcon.vue";
 import BoardView from "./ui/BoardView.vue";
 import DifficultyDialog from "./ui/DifficultyDialog.vue";
 import HintPanel from "./ui/HintPanel.vue";
@@ -466,6 +468,17 @@ onBeforeUnmount(() => {
                 <dd>{{ formatScore(clearedPlay) }}</dd>
               </div>
             </dl>
+            <!-- Achievements this clear unlocked (DESIGN.md 20.4). -->
+            <ul
+              v-if="online.clearUnlocks.value.length > 0"
+              class="clear-unlocks"
+              aria-live="polite"
+            >
+              <li v-for="unlock in online.clearUnlocks.value" :key="unlock">
+                <AchievementIcon :id="unlock" unlocked />
+                実績解除: {{ achievementDefinition(unlock)?.name }}
+              </li>
+            </ul>
             <!-- The board's ranking from the answer to the upload. -->
             <div class="clear-ranking" aria-live="polite">
               <p
@@ -686,6 +699,7 @@ onBeforeUnmount(() => {
       :assist="settings.assist"
       :show-conflicts="settings.showConflicts"
       @close="closeTutorial"
+      @complete="online.completeTutorial()"
     />
 
     <DifficultyDialog

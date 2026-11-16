@@ -113,7 +113,7 @@ kan-game.app の ID 基盤（kan/game の `wrangler dev`）、API（`wrangler de
 src/
   core/       盤面モデル・ルール・Solver・Logical Solver・定石・Generator・難易度・アシストの導出・成績・タイマー・保存・同期キュー・プレイログ・感想
   ui/         入力判定（タップ・なぞり・長押し・拡大）・ヒント表示補助・各画面のコンポーネント・盤面生成用の Web Worker・ID とオンライン処理
-  worker/     Cloudflare Workers の API（認証・履歴・プロフィール・ランキング・プレイログ・感想・GameService）
+  worker/     Cloudflare Workers の API（認証・履歴・プロフィール・ランキング・実績・プレイログ・感想・GameService）
   App.vue     画面表示と操作の連携
 migrations/   D1 のマイグレーション
 scripts/      ローカルの開発サーバー・Generator の計測・プレイログと感想の集計
@@ -158,7 +158,7 @@ Vue コンポーネントは主に以下を担当します。
 
 ### Worker
 
-`src/worker/` に、認証・完了記録の同期・プロフィール・問題別ランキング・プレイログ・感想の API と、ID 基盤から呼ばれる GameService を置きます。`src/worker/id-token.ts` と `src/worker/id-rpc.ts`、`tests/kan-game/` と `tests/id-token-vectors.json` は kan/game からの写しです（写し元は kan/game の `258c299`。それぞれ `src/token.ts`、`src/rpc.ts`、`testing/`、`test-vectors/id-token.json` の写し）。書き換えず、kan/game が変わったら写し直してください。写し直しが要るかは、kan/game で `git log 258c299.. -- src/token.ts src/rpc.ts testing test-vectors` を見て確かめます。写し直したら、ここのコミットを写し元のものに書き換えてください。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
+`src/worker/` に、認証・完了記録の同期・プロフィール・問題別ランキング・週間ランキング・実績・プレイログ・感想の API と、ID 基盤から呼ばれる GameService を置きます。`src/worker/id-token.ts` と `src/worker/id-rpc.ts`、`tests/kan-game/` と `tests/id-token-vectors.json` は kan/game からの写しです（写し元は kan/game の `258c299`。それぞれ `src/token.ts`、`src/rpc.ts`、`testing/`、`test-vectors/id-token.json` の写し）。書き換えず、kan/game が変わったら写し直してください。写し直しが要るかは、kan/game で `git log 258c299.. -- src/token.ts src/rpc.ts testing test-vectors` を見て確かめます。写し直したら、ここのコミットを写し元のものに書き換えてください。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
 
 Worker は薄く保ちます。パズルの判定（盤面の再生成・問題 ID の計算・輪と正解の照合）は Core を呼び、Worker 側で再実装しないでください。
 
@@ -404,7 +404,7 @@ Solver や Generator を Vue のリアクティビティ等へ不要に結合せ
 
 特に以下は実装しないでください。
 
-- デイリー・週間ランキング・実績・通知（次フェーズ）
+- デイリー・通知（次フェーズ）
 - 共有リンク（シードコードの共有で代える）
 - 課金
 - 広告

@@ -137,6 +137,8 @@ TAKO-SEN と違い、ミス数はありません。
 | `GET /api/leaderboards/:puzzleId` | 不要 | 問題別ランキング                             |
 | `GET /api/next-puzzle`            | ID   | 次の問題の候補（DESIGN.md 13.8）             |
 | `GET /api/weekly-ranking`         | 不要 | 週間ランキング（DESIGN.md 20.3）             |
+| `GET /api/achievements`           | ID   | 本人の実績の一覧（DESIGN.md 20.4）           |
+| `POST /api/achievements/unlock`   | ID   | 画面が知らせる実績（遊び方の完了）を解除する |
 | `POST /api/play-logs`             | ID   | 試行 1 回分のプレイログを登録する            |
 | `POST /api/feedback`              | ID   | 感想を 1 件登録する                          |
 
@@ -183,7 +185,7 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 
 新規の登録は、アカウントごとに 60 秒の固定窓で 10 件まで。超えたら `429` と `Retry-After: 60` を返します。件数は盤面を再生成して検証する前に数えるので、検証に失敗した送信も数えます（再生成は CPU を使うため）。保存済みの `playId` の再送は、保存した記録と比べて答え、数えません。
 
-成功の応答は `{ status, entries }` です。`entries` は登録した問題のランキングで、`GET /api/leaderboards/:puzzleId` と同じ形です。ランキングの読み取りに失敗しても登録は成功とし、`entries` を省きます。
+成功の応答は `{ status, entries, newAchievements }` です。`entries` は登録した問題のランキングで、`GET /api/leaderboards/:puzzleId` と同じ形です。ランキングの読み取りに失敗しても登録は成功とし、`entries` を省きます。`newAchievements` は下の「実績」を見てください。
 
 ### プロフィールと公開
 
@@ -208,6 +210,24 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 - アカウント・問題 ID ごとに、今週の最も早い `completed_at` の記録（同時刻なら `play_id` の順）を 1 件だけ採り、その記録の難易度で数える
 - `clears` は採った記録の数、`averageScore` は採った記録のスコア（問題別ランキングと同じ式、`src/worker/leaderboard.ts` の `SCORE_SQL`）の平均、`maxAssist` は採った記録の `max_assist` の最大
 - `metric=clears` は `clears` の降順、`metric=score` は `averageScore` の降順で、`score` は `clears` が 5 以上のプレイヤーだけを並べる。同じ値は同順位（1、1、3）で、名前の順に並べる
+
+### 実績
+
+方針は [`DESIGN.md`](./DESIGN.md) 20.4、定義は `src/core/achievements.ts` の `ACHIEVEMENTS` を正とします。`id` は D1 に保存するので、一度出したら変えません。
+
+- 判定は、本人の D1 の記録から毎回数え直す（`src/worker/achievements.ts`）。進み具合は保存せず、解除したことと日時だけを `achievements`（`account_id`、`achievement_type`、`unlocked_at`）に残す。主キーは `(account_id, achievement_type)` で、保存は `ON CONFLICT DO NOTHING`。同時の要求が同じ実績を保存しても 1 行になる
+- 数える記録は `completed_plays`。クリア数・ヒントなし（`hints_used = 0`）・アシストなし（`max_assist = 0`）・上級は、`generator_version` が通常の版（`GENERATOR_VERSIONS`）の記録だけを数える。同じ問題の再挑戦も 1 回と数える。クリアした日数は、版を問わず `completed_at` を日本時間の日付に丸めて数える
+- 時間・ヒント・アシスト・完了日時は、ほかの成績と同じくクライアントの申告値である。実績は本人だけが見るもので、ランキングに使わないため、これを受け入れる
+- 名前と公開への同意は要らない。ID があればよい（履歴と同じ）
+- `GET /api/achievements` は、判定し直したうえで、全定義の `{ id, unlockedAt, progress }` を定義の順に `{ achievements: [...] }` で返す。`unlockedAt` は解除した時刻（epoch ミリ秒）で、未解除は `null`。`progress` は記録から判定する実績の現在値で、しきい値で頭打ちにする。画面が知らせる実績と、未解除の秘密の実績（`secret`）では `null`
+- `POST /api/achievements/unlock` は `{ id }` を受け、画面から知らせてよい実績（定義の `metric: "client"`。今は `tutorial_complete` だけ）を保存する。応答は `{ newAchievements }` で、新しく保存したら `[id]`、保存済みなら `[]`。ほかの id は `400 invalid_achievement`
+- `POST /api/plays` の `newAchievements`:
+  - 新しく登録したとき（`201`）だけ判定する。同内容の再送（`duplicate`）では判定せず、`[]` を返す
+  - 本人の全記録の集計と、その記録（`play_id`）を除いた集計を 1 回の batch で読む。条件を満たした実績はすべて保存し、応答には、除いた集計では満たさず含めた集計で満たす実績（その記録が越えさせた実績）だけを定義の順で返す。どの要求が先に保存したかによらない
+  - 前の記録で満たしていた実績（導入の前の記録、一覧の取得より前の記録）は、保存はするが応答には載せない。画面は一覧で「NEW」を付ける
+  - 判定や保存に失敗しても、記録の登録は成功として返し、`newAchievements` を `[]` にする（ログに `achievement_evaluation_failure`）。満たした実績は次の判定で保存する
+- 端末は、カードで知らせた実績と、一覧で押したタイルの id を `nyoro-rin.achievements-seen.v1:<アカウント ID>` に配列で残し、それ以外の解除済みに「NEW」を付ける。遊び方の完了の送り待ちは `nyoro-rin.tutorial-achievement.v1` に、終えたときの ID（ID がなければ空文字、送れたら `null`）を残す。別の ID には送らない
+- 退会では `achievements` も削除する（`ACCOUNT_TABLES`）
 
 ### プレイログ
 
@@ -289,7 +309,7 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 
 ### 退会
 
-退会は kan-game.app のアカウント画面で行い、ID 基盤が NYORO-RIN の `GameService.deleteAccount` を呼びます。NYORO-RIN はその ID を `deleted_accounts` に記録し、同じトランザクションで完了記録・プロフィール・ランキングの記録・投稿制限の情報・プレイログ・感想を削除します。退会後の ID の Cookie は `410 id_deleted` で断ります。端末のローカル履歴は削除しません。
+退会は kan-game.app のアカウント画面で行い、ID 基盤が NYORO-RIN の `GameService.deleteAccount` を呼びます。NYORO-RIN はその ID を `deleted_accounts` に記録し、同じトランザクションで完了記録・プロフィール・ランキングの記録・投稿制限の情報・プレイログ・感想・実績を削除します。退会後の ID の Cookie は `410 id_deleted` で断ります。端末のローカル履歴は削除しません。
 
 kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）として登録する必要があります。
 
@@ -306,6 +326,7 @@ kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）とし�
 | `rate_limits`         | 投稿制限                                                |
 | `play_logs`           | プレイログ。主キーは `(account_id, play_id)`。イベントの JSON と、受け取ったときに数えた手数・ヒントの段階数・最長の間隔など |
 | `feedback`            | 感想と、送ったときの様子                                |
+| `achievements`        | 解除した実績と日時。主キーは `(account_id, achievement_type)`（`0005_achievements.sql`） |
 
 `0003_next_puzzle.sql` は、`GET /api/next-puzzle` が難易度と版で公開された初回の記録を引くための索引を足します。
 

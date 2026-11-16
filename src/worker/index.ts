@@ -2,6 +2,7 @@
  * The HTTP API (DATA_CONTRACT.md 「API」) and the static screen. Routes are
  * matched by hand, as in TAKO-SEN; anything outside /api/ is the screen.
  */
+import { isClientUnlockable } from "../core/achievements";
 import {
   RANKING_CONSENT_VERSION,
   validateGameName,
@@ -16,6 +17,11 @@ import { parsePlayLogUpload } from "../core/play-log";
 import { isPuzzleId } from "../core/puzzle-identity";
 import { isWeeklyMetric } from "../core/weekly-ranking";
 import { sweepDeletedAccounts } from "./accounts";
+import {
+  judgeAfterClear,
+  listAchievements,
+  unlockClientAchievement,
+} from "./achievements";
 import { authenticateAccount } from "./auth";
 import { saveFeedback } from "./feedback";
 import {
@@ -72,6 +78,17 @@ const ACCOUNT_ROUTES: Readonly<Record<string, AccountRoute>> = {
     limit: MAX_BODY_BYTES,
   },
   "/api/next-puzzle": { get: getNextPuzzle },
+  // Achievements need an ID only, like the history: no name or consent.
+  "/api/achievements": {
+    get: async (env, accountId) =>
+      json({
+        achievements: await listAchievements(env.DB, accountId, Date.now()),
+      }),
+  },
+  "/api/achievements/unlock": {
+    post: postAchievementUnlock,
+    limit: MAX_BODY_BYTES,
+  },
   "/api/play-logs": { post: postPlayLog, limit: MAX_PLAY_LOG_BYTES },
   "/api/feedback": { post: postFeedback, limit: MAX_FEEDBACK_BYTES },
 };
@@ -306,6 +323,11 @@ async function postPlay(
     outcome = await saveCompletedPlay(env.DB, accountId, claimed);
   }
   if (outcome === "conflict") return json({ error: "play_id_conflict" }, 409);
+  // Judged only for a new record: a resend announces nothing again.
+  const newAchievements =
+    outcome === "created"
+      ? await judgeAfterClear(env.DB, accountId, claimed.playId, Date.now())
+      : [];
   // The screen shows this board's ranking right after a clear; returning it
   // here saves a second request. The record is stored either way.
   const entries = await listLeaderboard(
@@ -313,7 +335,32 @@ async function postPlay(
     claimed.puzzleId,
     accountId,
   ).catch(() => undefined);
-  return json({ status: outcome, entries }, outcome === "created" ? 201 : 200);
+  return json(
+    { status: outcome, entries, newAchievements },
+    outcome === "created" ? 201 : 200,
+  );
+}
+
+/**
+ * POST /api/achievements/unlock: one the screen reports (the tutorial's
+ * end). Any other id is refused: the rest are judged from the records.
+ */
+async function postAchievementUnlock(
+  env: Env,
+  accountId: string,
+  body: unknown,
+): Promise<Response> {
+  const id = (body as { id?: unknown } | null)?.id;
+  if (!isClientUnlockable(id)) {
+    return json({ error: "invalid_achievement" }, 400);
+  }
+  const created = await unlockClientAchievement(
+    env.DB,
+    accountId,
+    id as string,
+    Date.now(),
+  );
+  return json({ newAchievements: created ? [id] : [] });
 }
 
 /**

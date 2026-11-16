@@ -22,6 +22,16 @@ import {
   saveInviteSeen,
 } from "../core/account-profile";
 import {
+  type AchievementStatus,
+  loadSeenAchievements,
+  loadTutorialPending,
+  markAchievementsSeen,
+  parseAchievementList,
+  parseNewAchievements,
+  saveTutorialPending,
+  tutorialPendingFor,
+} from "../core/achievements";
+import {
   type FeedbackContext,
   type SentFeedback,
   addSentFeedback,
@@ -92,8 +102,15 @@ export function useOnline() {
   const profileCheckedFor = ref<string | null>(null);
   const inviteSeen = ref(loadInviteSeen(storage));
   const clearRanking = shallowRef<ClearRanking>();
-  /** The puzzle whose ranking the clear card waits for. */
+  /** The clear whose ranking the clear card waits for. */
   let clearedPuzzleId: string | undefined;
+  let clearedPlayId: string | undefined;
+  /**
+   * The achievements the clear on the card unlocked (DESIGN.md 20.4). Ones
+   * unlocked by a clear sent later from the queue are not shown here; the
+   * list marks them as new instead.
+   */
+  const clearUnlocks = shallowRef<readonly string[]>([]);
   const sentFeedback = shallowRef<readonly SentFeedback[]>(
     loadSentFeedback(storage),
   );
@@ -128,7 +145,15 @@ export function useOnline() {
       if (outcome === "sent" && play.puzzleId === clearedPuzzleId) {
         const body = (await response.json()) as {
           entries?: LeaderboardEntry[];
+          newAchievements?: unknown;
         };
+        if (play.playId === clearedPlayId) {
+          const unlocked = parseNewAchievements(body);
+          clearUnlocks.value = unlocked;
+          // Announced on the card: not new in the list any more.
+          if (unlocked.length > 0 && id.value)
+            markAchievementsSeen(storage, id.value, unlocked);
+        }
         clearRanking.value = body.entries
           ? { status: "ready", entries: body.entries }
           : await fetchClearRanking(play.puzzleId);
@@ -199,6 +224,7 @@ export function useOnline() {
     try {
       const upload = await createCompletedPlayUpload(play, puzzle);
       clearedPuzzleId = upload.puzzleId;
+      clearedPlayId = upload.playId;
       plays.add(id.value, upload);
     } catch {
       clearRanking.value = { status: "offline" };
@@ -216,6 +242,8 @@ export function useOnline() {
   /** The board changed: the clear card's ranking no longer applies. */
   function forgetClear(): void {
     clearedPuzzleId = undefined;
+    clearedPlayId = undefined;
+    clearUnlocks.value = [];
     clearRanking.value = undefined;
   }
 
@@ -287,6 +315,67 @@ export function useOnline() {
         clearTimeout(timeout);
       }
     };
+  }
+
+  // --- achievements ------------------------------------------------------------
+
+  /** The list of achievements (DESIGN.md 20.4); undefined when it failed. */
+  async function fetchAchievements(): Promise<
+    readonly AchievementStatus[] | undefined
+  > {
+    if (!id.value) return undefined;
+    try {
+      const response = await apiFetch("/api/achievements");
+      if (!response.ok) return undefined;
+      return parseAchievementList(await response.json()) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function seenAchievements(): Set<string> {
+    return id.value ? loadSeenAchievements(storage, id.value) : new Set();
+  }
+
+  function markAchievementSeen(achievementId: string): Set<string> {
+    return id.value
+      ? markAchievementsSeen(storage, id.value, [achievementId])
+      : new Set();
+  }
+
+  /** Sends the tutorial's achievement for the ID, if it waits for it. */
+  async function sendTutorialAchievement(account: string): Promise<void> {
+    try {
+      const response = await apiPost("/api/achievements/unlock", {
+        id: "tutorial_complete",
+      });
+      // Worth another try: no ID yet, too busy, or an outage.
+      if (response.status === 401 || response.status === 429) return;
+      if (response.status >= 500) return;
+    } catch {
+      return; // Offline: sent again when the ID is next confirmed.
+    }
+    if (loadTutorialPending(storage) === account)
+      saveTutorialPending(storage, null);
+  }
+
+  /**
+   * The tutorial was finished: kept for the device's ID (or for the next ID
+   * known, without one) and sent when it can be.
+   */
+  function completeTutorial(): void {
+    const account = id.value;
+    saveTutorialPending(storage, account ?? "");
+    if (account && status.value === "ready")
+      void sendTutorialAchievement(account);
+  }
+
+  function sendPendingTutorial(account: string): void {
+    const pending = loadTutorialPending(storage);
+    const target = tutorialPendingFor(pending, account);
+    if (!target) return;
+    if (pending === "") saveTutorialPending(storage, target);
+    void sendTutorialAchievement(target);
   }
 
   // --- the player's name --------------------------------------------------------
@@ -391,6 +480,7 @@ export function useOnline() {
     if (now !== "ready" || !account) return;
     void refreshProfile(account);
     void sync();
+    sendPendingTutorial(account);
   });
 
   const timer = setInterval(() => void sync(), RETRY_MS);
@@ -404,12 +494,17 @@ export function useOnline() {
     inviteDue,
     dismissInvite,
     clearRanking,
+    clearUnlocks,
     sentFeedback,
     recordClear,
     recordPlayLog,
     forgetClear,
     fetchLeaderboard,
     fetchWeeklyRanking,
+    fetchAchievements,
+    seenAchievements,
+    markAchievementSeen,
+    completeTutorial,
     nextPuzzleCandidates,
     registerProfile,
     sendFeedback,

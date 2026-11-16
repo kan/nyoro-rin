@@ -14,6 +14,7 @@ import { type ResultHistory } from "../core/results";
 import { type AssistLevel, type Settings } from "../core/settings";
 import AboutPanel from "./AboutPanel.vue";
 import AccountPanel from "./AccountPanel.vue";
+import AchievementsPanel from "./AchievementsPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
 import InstallSteps from "./InstallSteps.vue";
 import LeaderboardList from "./LeaderboardList.vue";
@@ -31,6 +32,7 @@ export type MenuPage =
   | "records"
   | "ranking"
   | "weekly"
+  | "achievements"
   | "account"
   | "feedback"
   | "seed"
@@ -45,6 +47,7 @@ const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   records: "成績",
   ranking: "この問題のランキング",
   weekly: "週間ランキング",
+  achievements: "実績",
   account: "アカウント",
   feedback: "感想を送る",
   seed: "シード",
@@ -219,6 +222,9 @@ async function copySeed(): Promise<void> {
         <button type="button" @click="page = 'weekly'">
           <UiIcon name="records" />週間ランキング
         </button>
+        <button type="button" @click="page = 'achievements'">
+          <UiIcon name="achievements" />実績
+        </button>
         <button type="button" @click="page = 'account'">
           <UiIcon name="settings" />アカウント
         </button>
@@ -288,6 +294,10 @@ async function copySeed(): Promise<void> {
         >
           名前を決めてランキングに参加する
         </button>
+      </section>
+
+      <section v-else-if="page === 'achievements'" class="menu-page">
+        <AchievementsPanel :online="online" />
       </section>
 
       <section v-else-if="page === 'weekly'" class="menu-page">
