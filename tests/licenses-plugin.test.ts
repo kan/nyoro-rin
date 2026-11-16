@@ -1,7 +1,10 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  licenseText,
+  mergeCopies,
   ownLicense,
   packageDirOf,
   repositoryUrl,
@@ -132,5 +135,52 @@ describe("licenses plugin", () => {
     // A homepage that is not a web page is not linked.
     expect(repositoryUrl({ homepage: "javascript:alert(1)" })).toBeNull();
     expect(repositoryUrl({ homepage: "./docs" })).toBeNull();
+  });
+
+  it("reads every licence file of a package, in name order", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "licenses-"));
+    try {
+      fs.writeFileSync(path.join(dir, "LICENSE-MIT"), "MIT text\n");
+      fs.writeFileSync(path.join(dir, "LICENSE-APACHE"), "Apache text\n");
+      fs.writeFileSync(path.join(dir, "README.md"), "Not a licence");
+      // A directory with a licence's name is not read.
+      fs.mkdirSync(path.join(dir, "LICENSE.d"));
+      // The same text in another format shows once; an empty file not at all.
+      fs.writeFileSync(path.join(dir, "LICENSE.txt"), "MIT text");
+      fs.writeFileSync(path.join(dir, "COPYING"), "\n");
+      expect(licenseText(dir, "dual")).toBe("Apache text\n\n----\n\nMIT text");
+      // A symlinked licence is read through the link.
+      fs.rmSync(path.join(dir, "LICENSE-APACHE"));
+      fs.symlinkSync(
+        path.join(dir, "LICENSE-MIT"),
+        path.join(dir, "LICENSE-APACHE"),
+      );
+      expect(licenseText(dir, "linked")).toBe("MIT text");
+      for (const file of ["LICENSE-MIT", "LICENSE-APACHE", "LICENSE.txt"])
+        fs.rmSync(path.join(dir, file));
+      expect(licenseText(dir, "none")).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("lists the same version left in two places once, with both uses", () => {
+    const copy = (version: string) => ({
+      name: "a",
+      version,
+      license: "MIT",
+      url: null,
+      text: null,
+    });
+    expect(
+      mergeCopies([
+        [copy("1.0.0"), new Set(["sw"] as const)],
+        [copy("1.0.0"), new Set(["app"] as const)],
+        [copy("2.0.0"), new Set(["server"] as const)],
+      ]),
+    ).toEqual([
+      { ...copy("1.0.0"), usedIn: ["app", "sw"] },
+      { ...copy("2.0.0"), usedIn: ["server"] },
+    ]);
   });
 });
