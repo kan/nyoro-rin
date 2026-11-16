@@ -65,6 +65,12 @@ const MAX_FEEDBACK_BYTES = 8192;
 export const SWEEP_CRON = "0 18 * * *";
 /** 23:00 in Japan: tomorrow's daily board (DESIGN.md 25.3). */
 export const DAILY_CRON = "0 14 * * *";
+/**
+ * 23:30 in Japan: the same again, for a 23:00 run that failed. It does
+ * nothing when the board is there. A board neither run made is made by the
+ * day's first request, which costs that request seconds of CPU.
+ */
+export const DAILY_RETRY_CRON = "30 14 * * *";
 
 type Handler = (
   env: Env,
@@ -193,8 +199,11 @@ export default {
       await sweepDeletedAccounts(env.DB);
       return;
     }
-    if (controller.cron === DAILY_CRON) {
-      // A failure here is retried by that day's first request.
+    if (
+      controller.cron === DAILY_CRON ||
+      controller.cron === DAILY_RETRY_CRON
+    ) {
+      // A failure here is retried at 23:30, then by the day's first request.
       if (!env.DAILY_SEED_SECRET) {
         logError("daily_prepare_failure", "DAILY_SEED_SECRET is not set");
         return;

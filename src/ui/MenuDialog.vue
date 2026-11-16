@@ -77,7 +77,11 @@ const props = defineProps<{
   initialPage?: MenuPage;
   /** The day of the daily board on screen, if one is. */
   dailyDate?: string;
-  /** The day the daily ranking page opens at. */
+  /**
+   * The day the daily ranking page opens at when no daily board is on
+   * screen (a day already completed). The board's own day comes first: this
+   * one is left over from the last time the ranking was opened.
+   */
   dailyRankingDate?: string;
 }>();
 
@@ -306,9 +310,9 @@ async function copySeed(): Promise<void> {
 
       <section v-else-if="page === 'daily'" class="menu-page">
         <DailyRankingPanel
-          v-if="dailyRankingDate ?? dailyDate"
+          v-if="dailyDate ?? dailyRankingDate"
           :online="online"
-          :date="(dailyRankingDate ?? dailyDate)!"
+          :date="(dailyDate ?? dailyRankingDate)!"
         />
       </section>
 

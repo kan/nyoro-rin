@@ -15,11 +15,13 @@ import {
   dailyDateOfSeedCode,
   dailyPuzzle,
   dailySeedCode,
+  isCompletableDailyDate,
   isDailyDate,
   isRecordedSeedCode,
   loadDailyGame,
   nextDailyDate,
   parseDailyCompletionUpload,
+  previousDailyDate,
   parseDailyStatus,
   saveDailyGame,
 } from "../src/core/daily";
@@ -288,6 +290,15 @@ describe("the daily board in play on the device", () => {
     expect(loadDailyGame(storage, ACCOUNT, "2026-11-09")).toBeDefined();
     expect(loadDailyGame(storage, ACCOUNT, "2026-11-03")).toBeDefined();
     expect(loadDailyGame(storage, ACCOUNT, "2026-11-02")).toBeUndefined();
+  });
+
+  it("can complete today and yesterday only", () => {
+    const noon = Date.parse("2026-11-16T03:00:00Z");
+    expect(isCompletableDailyDate("2026-11-16", noon)).toBe(true);
+    expect(isCompletableDailyDate("2026-11-15", noon)).toBe(true);
+    expect(isCompletableDailyDate("2026-11-14", noon)).toBe(false);
+    expect(isCompletableDailyDate("2026-11-17", noon)).toBe(false);
+    expect(previousDailyDate("2026-03-01")).toBe("2026-02-28");
   });
 
   it("starts empty from broken data", () => {

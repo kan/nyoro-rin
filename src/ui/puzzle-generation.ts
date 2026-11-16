@@ -27,6 +27,9 @@ interface Pending {
  */
 export const REPLY_TIMEOUT_MS = 10000;
 
+/** Silent replies in a row after which boards are made on the main thread. */
+export const SILENT_LIMIT = 2;
+
 export interface PuzzleGeneratorOptions {
   /** Starts the worker; tests pass a stand-in. */
   readonly createWorker?: () => Worker;
@@ -55,6 +58,8 @@ export class SupersededError extends Error {
 export class PuzzleGenerator {
   private worker: Worker | undefined;
   private workerFailed = false;
+  /** Requests in a row the worker did not answer in time. */
+  private silentInARow = 0;
   private nextId = 1;
   private pending: Pending | undefined;
   private replyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -91,7 +96,7 @@ export class PuzzleGenerator {
       if (worker) {
         worker.postMessage(request);
         this.replyTimer = setTimeout(
-          () => this.onWorkerFailed(),
+          () => this.onWorkerSilent(),
           this.replyTimeoutMs,
         );
       } else this.generateHere(this.pending);
@@ -125,13 +130,25 @@ export class PuzzleGenerator {
     this.replyTimer = undefined;
   }
 
-  /**
-   * From now on, boards are made here; the one in progress too. This covers
-   * a worker that failed and one that stopped answering.
-   */
+  /** A worker that failed: from now on, boards are made here, this one too. */
   private onWorkerFailed(): void {
-    this.clearReplyTimer();
     this.workerFailed = true;
+    this.clearReplyTimer();
+    this.stopWorker();
+    if (this.pending) this.generateHere(this.pending);
+  }
+
+  /**
+   * A worker that stopped answering: this board is made here, and the next
+   * request starts a fresh worker. One slow board (a slow phone, the worker
+   * starting at the same time) must not leave every later one on the main
+   * thread; a worker silent SILENT_LIMIT times in a row is given up, so a
+   * worker that never answers does not cost every board the full wait.
+   */
+  private onWorkerSilent(): void {
+    this.silentInARow += 1;
+    if (this.silentInARow >= SILENT_LIMIT) this.workerFailed = true;
+    this.clearReplyTimer();
     this.stopWorker();
     if (this.pending) this.generateHere(this.pending);
   }
@@ -157,6 +174,7 @@ export class PuzzleGenerator {
     if (!pending || pending.request.id !== response.id) return;
     this.pending = undefined;
     this.clearReplyTimer();
+    this.silentInARow = 0;
     if ("puzzle" in response) pending.resolve(response.puzzle);
     else pending.reject(new Error(response.error));
   }

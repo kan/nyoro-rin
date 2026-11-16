@@ -24,9 +24,10 @@
   "services": [{ "binding": "ID", "service": "kan-game-local" }],
   // 3:00 in Japan: deletes again any record a withdrawn ID wrote while it
   // was being deleted (src/worker/accounts.ts). 23:00 in Japan: makes the
-  // next day's daily board (src/worker/daily.ts). Keep src/worker/index.ts
-  // SWEEP_CRON and DAILY_CRON the same.
-  "triggers": { "crons": ["0 18 * * *", "0 14 * * *"] },
+  // next day's daily board (src/worker/daily.ts); 23:30 makes it again if
+  // 23:00 failed. Keep src/worker/index.ts SWEEP_CRON, DAILY_CRON and
+  // DAILY_RETRY_CRON the same.
+  "triggers": { "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *"] },
   "vars": {
     // The ID cookie and the keys that verify it (kan/game docs/ID_DESIGN.md
     // 「ID と Cookie」). Locally the keys are kan/game's own (its .dev.vars),
@@ -63,7 +64,7 @@
       // kan/game's development Worker, which calls back GameService
       // (src/worker/game-service.ts) when a player withdraws.
       "services": [{ "binding": "ID", "service": "kan-game-dev" }],
-      "triggers": { "crons": ["0 18 * * *", "0 14 * * *"] },
+      "triggers": { "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *"] },
       "vars": {
         // Must match kan/game's env.dev (its wrangler.jsonc).
         "ID_COOKIE_NAME": "__Secure-kgdev_id",
@@ -95,7 +96,7 @@
       // kan/game's production Worker, which calls back GameService when a
       // player withdraws.
       "services": [{ "binding": "ID", "service": "kan-game" }],
-      "triggers": { "crons": ["0 18 * * *", "0 14 * * *"] },
+      "triggers": { "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *"] },
       "vars": {
         // Must match kan/game's env.production (its wrangler.jsonc).
         "ID_COOKIE_NAME": "__Secure-kg_id",

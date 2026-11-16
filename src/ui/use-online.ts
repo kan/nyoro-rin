@@ -73,7 +73,9 @@ export type ClearRanking =
   | { readonly status: "sending" }
   | { readonly status: "ready"; readonly entries: readonly LeaderboardEntry[] }
   /** Not sent: no ID, no connection or no answer. It stays queued. */
-  | { readonly status: "offline" };
+  | { readonly status: "offline" }
+  /** A daily completion refused: its day can no longer be completed. */
+  | { readonly status: "expired" };
 
 export type ProfileResult =
   | { readonly ok: true; readonly profile: AccountProfile }
@@ -209,6 +211,14 @@ export function useOnline() {
         clearRanking.value = body.entries
           ? { status: "ready", entries: body.entries }
           : { status: "offline" };
+      } else if (response.status === 409 && upload.playId === clearedPlayId) {
+        // Dropped from the queue like any 409; the card says why, rather
+        // than that it will be sent later.
+        const body = (await response.json().catch(() => ({}))) as {
+          status?: unknown;
+        };
+        if (body.status === "expired")
+          clearRanking.value = { status: "expired" };
       }
       return outcome;
     } catch {

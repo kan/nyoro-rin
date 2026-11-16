@@ -14,7 +14,8 @@ import {
   watch,
 } from "vue";
 import { achievementDefinition } from "./core/achievements";
-import { dailyPuzzleFromBoard, loadDailyGame } from "./core/daily";
+import { loadDailyGame } from "./core/daily";
+import { playableDailyPuzzle } from "./ui/daily-board";
 import { type DifficultyChoice } from "./core/difficulty-choice";
 import { type FeedbackContext, type FeedbackSource } from "./core/feedback";
 import { completedPlay } from "./core/results";
@@ -445,7 +446,7 @@ async function openDaily(): Promise<void> {
       );
       return;
     }
-    const daily = await dailyPuzzleFromBoard(board);
+    const daily = await playableDailyPuzzle(board);
     if (!daily) {
       noticeDaily("デイリーの盤面を確かめられませんでした。");
       return;
@@ -687,6 +688,12 @@ onBeforeUnmount(() => {
                 class="note"
               >
                 記録はこの端末に保存しました。通信できるようになったら送ります。
+              </p>
+              <p
+                v-else-if="online.clearRanking.value?.status === 'expired'"
+                class="note"
+              >
+                この日のデイリーは締め切られたため、記録は残りません。デイリーは翌日の終わりまでに送れた分だけを記録します。
               </p>
               <template
                 v-else-if="online.clearRanking.value?.status === 'ready'"

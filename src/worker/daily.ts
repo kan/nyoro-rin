@@ -14,6 +14,7 @@ import {
   type DailyStatus,
   DAILY_VERSION,
   dailyDate,
+  isCompletableDailyDate,
   nextDailyDate,
 } from "../core/daily";
 import { dailySeed, generateDailyPuzzle } from "../core/daily-generator";
@@ -179,14 +180,15 @@ export type CompleteOutcome =
   | "duplicate"
   /** No challenge of this playId on that date. */
   | "not_started"
-  /** A date after today. */
+  /** A date after today, or before yesterday (isCompletableDailyDate). */
   | "expired"
   /** The loop is not the board's solution, or the board is another. */
   | "invalid_solution";
 
 /**
- * Completes a started challenge, once: a later date, a past date started
- * before midnight included. The loop must be the stored solution.
+ * Completes a started challenge, once: on the day, or the next day for one
+ * started before midnight. Later, the day's ranking stays as it is. The loop
+ * must be the stored solution.
  */
 export async function completeDailyAttempt(
   db: D1Database,
@@ -194,7 +196,7 @@ export async function completeDailyAttempt(
   upload: DailyCompletionUpload,
   now: number,
 ): Promise<CompleteOutcome> {
-  if (upload.date > dailyDate(now)) return "expired";
+  if (!isCompletableDailyDate(upload.date, now)) return "expired";
   const stored = await readBoard(db, upload.date);
   if (
     !stored ||

@@ -5,6 +5,7 @@ import {
   type DailyStatus,
   dailyDate,
   nextDailyDate,
+  previousDailyDate,
 } from "../src/core/daily";
 import { dailySeed, generateDailyPuzzle } from "../src/core/daily-generator";
 import { deleteAccount } from "../src/worker/accounts";
@@ -12,7 +13,7 @@ import {
   completeDailyAttempt,
   getOrCreateDailyBoard,
 } from "../src/worker/daily";
-import worker, { DAILY_CRON } from "../src/worker/index";
+import worker, { DAILY_CRON, DAILY_RETRY_CRON } from "../src/worker/index";
 import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
 import {
   createTestIdIssuer,
@@ -226,13 +227,13 @@ describe("completing", () => {
     ).toBe(409);
   });
 
-  it("accepts a past day started before midnight", async () => {
+  /** A started, unfinished challenge of `date`, and its completion. */
+  async function startedOn(date: string) {
     const { id } = await namedAccount();
-    const past = "2026-11-01";
     const stored = await getOrCreateDailyBoard(
       DB,
       TEST_DAILY_SEED_SECRET,
-      past,
+      date,
       Date.now(),
     );
     const playId = crypto.randomUUID();
@@ -240,14 +241,22 @@ describe("completing", () => {
       `INSERT INTO daily_attempts (account_id, challenge_date, play_id, started_at)
        VALUES (?, ?, ?, ?)`,
     )
-      .bind(id, past, playId, Date.now())
+      .bind(id, date, playId, Date.now())
       .run();
     const upload = completion(playId, {
-      date: past,
+      date,
       puzzleId: stored.board.puzzleId,
       loop: [...stored.solution],
     });
-    expect(await completeDailyAttempt(DB, id, upload, Date.now())).toBe(
+    return { id, upload };
+  }
+
+  /** Noon in Japan of `today`: the run may cross midnight meanwhile. */
+  const noonOfToday = () => Date.parse(`${today}T03:00:00Z`);
+
+  it("accepts yesterday's challenge started before midnight", async () => {
+    const { id, upload } = await startedOn(previousDailyDate(today));
+    expect(await completeDailyAttempt(DB, id, upload, noonOfToday())).toBe(
       "completed",
     );
     // A date after today is refused, whatever it carries.
@@ -256,9 +265,24 @@ describe("completing", () => {
         DB,
         id,
         { ...upload, date: nextDailyDate(today) },
-        Date.now(),
+        noonOfToday(),
       ),
     ).toBe("expired");
+  });
+
+  it("refuses a challenge two days old: the day's ranking stays", async () => {
+    const date = previousDailyDate(previousDailyDate(today));
+    const { id, upload } = await startedOn(date);
+    expect(await completeDailyAttempt(DB, id, upload, noonOfToday())).toBe(
+      "expired",
+    );
+    const row = await DB.prepare(
+      `SELECT completed_at FROM daily_attempts
+       WHERE account_id = ? AND challenge_date = ?`,
+    )
+      .bind(id, date)
+      .first<{ completed_at: number | null }>();
+    expect(row?.completed_at).toBeNull();
   });
 });
 
@@ -403,6 +427,11 @@ describe("making the boards", () => {
       .run();
     await worker.scheduled(
       { cron: DAILY_CRON, scheduledTime: now } as ScheduledController,
+      env,
+    );
+    // So does the 23:30 run, which is there for a failed 23:00 one.
+    await worker.scheduled(
+      { cron: DAILY_RETRY_CRON, scheduledTime: now } as ScheduledController,
       env,
     );
     const again = await DB.prepare(

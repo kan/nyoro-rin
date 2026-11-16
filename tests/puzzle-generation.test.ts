@@ -4,6 +4,7 @@ import { CURRENT_GENERATOR_VERSION as GENERATOR_VERSION } from "../src/core/gene
 import {
   PuzzleGenerator,
   REPLY_TIMEOUT_MS,
+  SILENT_LIMIT,
   randomSeed,
   type GenerationRequest,
   type GenerationResponse,
@@ -93,7 +94,65 @@ describe("the puzzle worker", () => {
     );
     expect(workers[0]!.terminated).toBe(true);
 
-    // The silent worker is not tried again.
+    // One slow board does not give the worker up: the next takes a fresh one.
+    const next = generator.generate("next", "easy", GENERATOR_VERSION);
+    expect(workers).toHaveLength(2);
+    workers[1]!.answer();
+    await expect(next).resolves.toEqual(generatePuzzle("next", "easy").puzzle);
+  });
+
+  it("gives the worker up after it is silent twice in a row", async () => {
+    vi.useFakeTimers();
+    const workers: FakeWorker[] = [];
+    const generator = generatorWith(workers);
+    for (const seed of ["silent-1", "silent-2"]) {
+      const board = generator.generate(seed, "easy", GENERATOR_VERSION);
+      await vi.advanceTimersByTimeAsync(REPLY_TIMEOUT_MS);
+      await vi.runOnlyPendingTimersAsync();
+      await expect(board).resolves.toEqual(generatePuzzle(seed, "easy").puzzle);
+    }
+    expect(workers).toHaveLength(SILENT_LIMIT);
+
+    // From now on, boards are made here at once, without the wait.
+    const next = generator.generate("next", "easy", GENERATOR_VERSION);
+    await vi.runOnlyPendingTimersAsync();
+    await expect(next).resolves.toEqual(generatePuzzle("next", "easy").puzzle);
+    expect(workers).toHaveLength(SILENT_LIMIT);
+  });
+
+  it("counts silences in a row only: an answer in between resets them", async () => {
+    vi.useFakeTimers();
+    const workers: FakeWorker[] = [];
+    const generator = generatorWith(workers);
+    const silent = generator.generate("silent", "easy", GENERATOR_VERSION);
+    await vi.advanceTimersByTimeAsync(REPLY_TIMEOUT_MS);
+    await vi.runOnlyPendingTimersAsync();
+    await silent;
+    const answered = generator.generate("answered", "easy", GENERATOR_VERSION);
+    workers[1]!.answer();
+    await answered;
+    const again = generator.generate("again", "easy", GENERATOR_VERSION);
+    await vi.advanceTimersByTimeAsync(REPLY_TIMEOUT_MS);
+    await vi.runOnlyPendingTimersAsync();
+    await again;
+    // Silent once since the answer: a fresh worker is still tried. (The one
+    // that answered took "again" too, and was stopped when silent.)
+    generator.generate("last", "easy", GENERATOR_VERSION).catch(() => {});
+    expect(workers).toHaveLength(3);
+  });
+
+  it("makes every board on the main thread once the worker failed", async () => {
+    vi.useFakeTimers();
+    const workers: FakeWorker[] = [];
+    const generator = generatorWith(workers);
+    const board = generator.generate("failed", "easy", GENERATOR_VERSION);
+    workers[0]!.onerror?.({ preventDefault() {} } as ErrorEvent);
+    await vi.runOnlyPendingTimersAsync();
+    await expect(board).resolves.toEqual(
+      generatePuzzle("failed", "easy").puzzle,
+    );
+
+    // The failed worker is not tried again.
     const next = generator.generate("next", "easy", GENERATOR_VERSION);
     await vi.runOnlyPendingTimersAsync();
     await expect(next).resolves.toEqual(generatePuzzle("next", "easy").puzzle);

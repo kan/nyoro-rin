@@ -210,7 +210,11 @@ export interface DailyRanking {
  */
 export const DAILY_GAMES_KEY = "nyoro-rin.daily-games.v1";
 
-/** Days kept: a started challenge can still be finished after midnight. */
+/**
+ * Boards kept, over all IDs on the device, newest days first. Only today
+ * and yesterday can be completed (isCompletableDailyDate), but the server's
+ * clock decides that, not the device's: a count, not a date, drops the old.
+ */
 const DAILY_GAMES_LIMIT = 7;
 
 interface SavedDailyGame {

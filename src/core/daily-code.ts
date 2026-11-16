@@ -29,6 +29,23 @@ export function nextDailyDate(date: string): string {
     .slice(0, 10);
 }
 
+/** The date before `date`. */
+export function previousDailyDate(date: string): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) - DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * Whether a started challenge of `date` may still be completed: on the day,
+ * and until the end of the next one, for a board finished past midnight.
+ * Later, the day's ranking and the counted days stay as they are.
+ */
+export function isCompletableDailyDate(date: string, now: number): boolean {
+  const today = dailyDate(now);
+  return date === today || date === previousDailyDate(today);
+}
+
 /** A real calendar date written as `YYYY-MM-DD`. */
 export function isDailyDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {

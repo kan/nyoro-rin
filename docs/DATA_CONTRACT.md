@@ -245,7 +245,7 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 
 - 日付は日本時間の暦日 `YYYY-MM-DD`（`dailyDate`）。0 時に切り替わる
 - 盤面は 10 × 10、版 `d1`、上級。シードは Worker の secret `DAILY_SEED_SECRET` を鍵にした `HMAC-SHA256("nyoro-daily:<日付>")` の 16 進表記（`dailySeed`）。n1 がそのシードで作れなければ `<シード>:1`〜`<シード>:7` を順に試す。シードはどの API も返さない
-- 盤面は `daily_puzzles` に保存して固定する。定期実行（`0 14 * * *`、日本時間 23:00）が翌日の盤面を作る。無い日は、その日の最初の `GET /api/daily` か `POST /api/daily/start` で作る。同時に作っても `ON CONFLICT DO NOTHING` で 1 つに決まる
+- 盤面は `daily_puzzles` に保存して固定する。定期実行（`0 14 * * *`、日本時間 23:00）が翌日の盤面を作る。失敗した日のために `30 14 * * *`（23:30）でも同じ処理を走らせる。無い日は、その日の最初の `GET /api/daily` か `POST /api/daily/start` で作る。同時に作っても `ON CONFLICT DO NOTHING` で 1 つに決まる
 - `DAILY_SEED_SECRET` が無いと、デイリーの API は `503 daily_unavailable` を返す
 
 `GET /api/daily` の応答:
@@ -278,7 +278,7 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 
 - `puzzleId` と `loop` を、保存した盤面の問題 ID と正解に照合する。違えば `400 invalid_solution`。形が違えば `400 invalid_daily_completion`
 - 開始済みで未完了の挑戦（同じ `playId`）だけを、1 回の UPDATE で完了にする（`completed_at` はサーバーの時刻）。時間・ヒント・アシストは端末の申告値
-- 今日より後の日付は `409`（`status: "expired"`）、開始していない・別の `playId` は `409`（`status: "not_started"`）。開始済みの過去の日の完了は受け付ける
+- 今日より後の日付と、前日より前の日付は `409`（`status: "expired"`）、開始していない・別の `playId` は `409`（`status: "not_started"`）。開始済みの前日の完了は受け付ける（`isCompletableDailyDate`）
 - 完了したら `201 { status: "completed", entries }`、同じ挑戦の再送は `200 { status: "duplicate", entries }`（成績は変えない）。`entries` はその日のランキング
 - 端末は完了を `nyoro-rin.daily-outbox.v1` に入れて送り、`400`・`409` は捨て、ほかは送り直す
 
