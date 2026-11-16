@@ -24,6 +24,40 @@ import { puzzleId } from "../core/puzzle-identity";
 import type { AssistLevel } from "../core/settings";
 import { SCORE_SQL } from "./leaderboard";
 
+interface AttemptRow {
+  readonly play_id: string;
+  readonly completed_at: number | null;
+}
+
+/** The ID's challenge of the date, if one was started. */
+async function readAttempt(
+  db: D1Database,
+  accountId: string,
+  date: string,
+): Promise<AttemptRow | undefined> {
+  const row = await db
+    .prepare(
+      `SELECT play_id, completed_at FROM daily_attempts
+       WHERE account_id = ? AND challenge_date = ?`,
+    )
+    .bind(accountId, date)
+    .first<AttemptRow>();
+  return row ?? undefined;
+}
+
+/**
+ * The fewest seconds a 10 × 10 hard board takes without hints. The loop the
+ * device sends is the solution it worked out from the clues, and the time
+ * is its own count, so the server cannot see the play itself: the floor
+ * keeps out a time no one can play, sent straight to the API.
+ *
+ * A completion with hints is not held to it: lines shown one after another
+ * can close the loop fast, and such a one has no no-hint bonus to rank
+ * high with. There is no ceiling: a longer time only lowers the score, and
+ * the device's clock may jump ahead of the server's.
+ */
+export const DAILY_MIN_ELAPSED_SECONDS = 30;
+
 interface StoredBoard {
   readonly board: DailyBoard;
   readonly solution: readonly number[];
@@ -114,13 +148,7 @@ export async function getDailyStatus(
 ): Promise<DailyStatus> {
   const date = dailyDate(now);
   const { board } = await getOrCreateDailyBoard(db, secret, date, now);
-  const attempt = await db
-    .prepare(
-      `SELECT play_id, completed_at FROM daily_attempts
-       WHERE account_id = ? AND challenge_date = ?`,
-    )
-    .bind(accountId, date)
-    .first<{ play_id: string; completed_at: number | null }>();
+  const attempt = await readAttempt(db, accountId, date);
   if (!attempt) return { board, attempt: "not_started" };
   const status: DailyAttemptStatus =
     attempt.completed_at === null ? "active" : "completed";
@@ -161,13 +189,7 @@ export async function startDailyAttempt(
     .bind(accountId, date, playId, now)
     .run();
   if (inserted.meta.changes > 0) return "started";
-  const existing = await db
-    .prepare(
-      `SELECT play_id, completed_at FROM daily_attempts
-       WHERE account_id = ? AND challenge_date = ?`,
-    )
-    .bind(accountId, date)
-    .first<{ play_id: string; completed_at: number | null }>();
+  const existing = await readAttempt(db, accountId, date);
   // The playId was used for another date: refused like another device's.
   if (!existing) return "already_started";
   if (existing.completed_at !== null) return "completed";
@@ -183,12 +205,14 @@ export type CompleteOutcome =
   /** A date after today, or before yesterday (isCompletableDailyDate). */
   | "expired"
   /** The loop is not the board's solution, or the board is another. */
-  | "invalid_solution";
+  | "invalid_solution"
+  /** Without hints, a time under DAILY_MIN_ELAPSED_SECONDS. */
+  | "invalid_time";
 
 /**
  * Completes a started challenge, once: on the day, or the next day for one
  * started before midnight. Later, the day's ranking stays as it is. The loop
- * must be the stored solution.
+ * must be the stored solution, and the time one that can be played.
  */
 export async function completeDailyAttempt(
   db: D1Database,
@@ -205,6 +229,16 @@ export async function completeDailyAttempt(
     !stored.solution.every((edge, i) => edge === upload.loop[i])
   ) {
     return "invalid_solution";
+  }
+  const attempt = await readAttempt(db, accountId, upload.date);
+  if (!attempt || attempt.play_id !== upload.playId) return "not_started";
+  // A resend is answered before its time is judged: the first one stands.
+  if (attempt.completed_at !== null) return "duplicate";
+  if (
+    upload.hintsUsed === 0 &&
+    upload.elapsedSeconds < DAILY_MIN_ELAPSED_SECONDS
+  ) {
+    return "invalid_time";
   }
   const updated = await db
     .prepare(
@@ -226,15 +260,12 @@ export async function completeDailyAttempt(
     )
     .run();
   if (updated.meta.changes > 0) return "completed";
-  const existing = await db
-    .prepare(
-      `SELECT play_id, completed_at FROM daily_attempts
-       WHERE account_id = ? AND challenge_date = ?`,
-    )
-    .bind(accountId, upload.date)
-    .first<{ play_id: string; completed_at: number | null }>();
-  if (!existing || existing.play_id !== upload.playId) return "not_started";
-  return existing.completed_at !== null ? "duplicate" : "not_started";
+  // Not changed: the same completion landed meanwhile (two sends at once),
+  // or the challenge went (the account was withdrawn).
+  const after = await readAttempt(db, accountId, upload.date);
+  return after?.play_id === upload.playId && after.completed_at !== null
+    ? "duplicate"
+    : "not_started";
 }
 
 /** The ranking's rows: the top 100, and the viewer's own row below them. */

@@ -1,5 +1,4 @@
 import { RANKING_CONSENT_VERSION } from "../core/account-profile";
-import { GENERATOR_VERSIONS } from "../core/generator";
 import type { Difficulty } from "../core/model";
 import type { AssistLevel } from "../core/settings";
 import {
@@ -9,10 +8,7 @@ import {
   type WeeklyRanking,
   rankingWeekOf,
 } from "../core/weekly-ranking";
-import { SCORE_SQL } from "./leaderboard";
-
-// The versions are constants of this codebase, so they are inlined.
-const ORDINARY_VERSIONS = GENERATOR_VERSIONS.map((v) => `'${v}'`).join(", ");
+import { ORDINARY_VERSIONS_SQL, SCORE_SQL } from "./leaderboard";
 
 const ORDERING: Readonly<Record<WeeklyMetric, string>> = {
   clears: "clears DESC",
@@ -28,21 +24,23 @@ const ORDERING: Readonly<Record<WeeklyMetric, string>> = {
  * share a rank, listed by name.
  *
  * ?1 difficulty, ?2 week start, ?3 week end, ?4 now: a clear dated in the
- * future (its time is the device's) does not count before it happens.
+ * future (its time is the device's) does not count before it happens. A
+ * puzzle has one difficulty, so filtering it before numbering the attempts
+ * leaves them the same, over the one difficulty's rows only.
  */
 export function weeklyRankingSql(metric: WeeklyMetric): string {
   return `WITH trials AS (
-    SELECT c.account_id, c.difficulty, c.max_assist, ${SCORE_SQL} AS score,
+    SELECT c.account_id, c.max_assist, ${SCORE_SQL} AS score,
       ROW_NUMBER() OVER (PARTITION BY c.account_id, c.puzzle_id
         ORDER BY c.completed_at, c.play_id) AS attempt
     FROM completed_plays c
-    WHERE c.ranking_eligible = 1
+    WHERE c.ranking_eligible = 1 AND c.difficulty = ?1
       AND c.completed_at >= ?2 AND c.completed_at < ?3 AND c.completed_at <= ?4
-      AND c.generator_version IN (${ORDINARY_VERSIONS})
+      AND c.generator_version IN (${ORDINARY_VERSIONS_SQL})
   ), totals AS (
     SELECT account_id, COUNT(*) AS clears, AVG(score) AS average_score,
       MAX(max_assist) AS max_assist
-    FROM trials WHERE attempt = 1 AND difficulty = ?1 GROUP BY account_id
+    FROM trials WHERE attempt = 1 GROUP BY account_id
     ${metric === "score" ? `HAVING COUNT(*) >= ${WEEKLY_SCORE_MIN_CLEARS}` : ""}
   )
   SELECT t.account_id, p.display_name, t.clears, t.average_score, t.max_assist,

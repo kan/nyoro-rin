@@ -10,6 +10,7 @@ import {
 import { dailySeed, generateDailyPuzzle } from "../src/core/daily-generator";
 import { deleteAccount } from "../src/worker/accounts";
 import {
+  DAILY_MIN_ELAPSED_SECONDS,
   completeDailyAttempt,
   getOrCreateDailyBoard,
 } from "../src/worker/daily";
@@ -175,6 +176,56 @@ describe("starting", () => {
 });
 
 describe("completing", () => {
+  it("refuses a time no one can play without hints", async () => {
+    const { headers } = await namedAccount();
+    const playId = crypto.randomUUID();
+    await start(headers, playId);
+    const tooFast = await complete(
+      headers,
+      completion(playId, {
+        elapsedSeconds: DAILY_MIN_ELAPSED_SECONDS - 1,
+        hintsUsed: 0,
+      }),
+    );
+    expect(tooFast.status).toBe(400);
+    expect(await tooFast.json()).toMatchObject({ error: "invalid_time" });
+    // At the floor it counts.
+    const done = await complete(
+      headers,
+      completion(playId, {
+        elapsedSeconds: DAILY_MIN_ELAPSED_SECONDS,
+        hintsUsed: 0,
+      }),
+    );
+    expect(done.status).toBe(201);
+  });
+
+  it("takes a fast time with hints, and a time past the server's clock", async () => {
+    const { headers } = await namedAccount();
+    const playId = crypto.randomUUID();
+    await start(headers, playId);
+    // Lines shown one after another can close the loop fast; and a device
+    // clock that jumped ahead may count more than has passed.
+    const done = await complete(
+      headers,
+      completion(playId, {
+        elapsedSeconds: 5,
+        hintsUsed: 40,
+        maxHintStage: 2,
+        reveals: 40,
+      }),
+    );
+    expect(done.status).toBe(201);
+    const other = await namedAccount();
+    const otherPlayId = crypto.randomUUID();
+    await start(other.headers, otherPlayId);
+    const long = await complete(
+      other.headers,
+      completion(otherPlayId, { elapsedSeconds: 10 * 60 * 60 }),
+    );
+    expect(long.status).toBe(201);
+  });
+
   it("checks the loop and records the result once", async () => {
     const { headers } = await namedAccount();
     const playId = crypto.randomUUID();

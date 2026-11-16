@@ -457,6 +457,9 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     const request = latestRequest;
     // Saves the board being left, the day's board in its own place.
     pause();
+    // The callers leave the day's board first, to ask before the ordinary
+    // board is replaced (App.vue requestStart). Should one not, the day's
+    // board stays on screen until the new one is made, and its log is kept.
     const leavingDaily = daily.value !== undefined;
     loading.value = true;
     failure.value = undefined;

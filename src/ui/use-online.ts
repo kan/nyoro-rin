@@ -74,8 +74,14 @@ export type ClearRanking =
   | { readonly status: "ready"; readonly entries: readonly LeaderboardEntry[] }
   /** Not sent: no ID, no connection or no answer. It stays queued. */
   | { readonly status: "offline" }
-  /** A daily completion refused: its day can no longer be completed. */
-  | { readonly status: "expired" };
+  /**
+   * A daily completion refused for good: its day can no longer be completed
+   * (expired), or the time is under the floor without hints (invalid_time).
+   */
+  | {
+      readonly status: "refused";
+      readonly reason: "expired" | "invalid_time";
+    };
 
 export type ProfileResult =
   | { readonly ok: true; readonly profile: AccountProfile }
@@ -166,22 +172,31 @@ export function useOnline() {
     return "retry";
   }
 
+  /** The answer to an accepted clear or completion, as the card shows it. */
+  interface ClearAnswer {
+    readonly entries?: LeaderboardEntry[];
+    readonly newAchievements?: unknown;
+  }
+
+  /**
+   * The achievements the clear just made unlocked, for the card. Only the
+   * clear on the card may announce them: a queued one from earlier may not.
+   */
+  function announceUnlocks(body: ClearAnswer): void {
+    const unlocked = parseNewAchievements(body);
+    clearUnlocks.value = unlocked;
+    // Announced on the card: not new in the list any more.
+    if (unlocked.length > 0 && id.value)
+      markAchievementsSeen(storage, id.value, unlocked);
+  }
+
   async function sendPlay(play: CompletedPlayUpload): Promise<SendOutcome> {
     try {
       const response = await apiPost("/api/plays", play);
       const outcome = outcomeOf(response, "plays");
       if (outcome === "sent" && play.puzzleId === clearedPuzzleId) {
-        const body = (await response.json()) as {
-          entries?: LeaderboardEntry[];
-          newAchievements?: unknown;
-        };
-        if (play.playId === clearedPlayId) {
-          const unlocked = parseNewAchievements(body);
-          clearUnlocks.value = unlocked;
-          // Announced on the card: not new in the list any more.
-          if (unlocked.length > 0 && id.value)
-            markAchievementsSeen(storage, id.value, unlocked);
-        }
+        const body = (await response.json()) as ClearAnswer;
+        if (play.playId === clearedPlayId) announceUnlocks(body);
         clearRanking.value = body.entries
           ? { status: "ready", entries: body.entries }
           : await fetchClearRanking(play.puzzleId);
@@ -198,27 +213,26 @@ export function useOnline() {
     try {
       const response = await apiPost("/api/daily/complete", upload);
       const outcome = outcomeOf(response, "daily");
-      if (outcome === "sent" && upload.playId === clearedPlayId) {
-        const body = (await response.json()) as {
-          entries?: LeaderboardEntry[];
-          newAchievements?: unknown;
-        };
-        const unlocked = parseNewAchievements(body);
-        clearUnlocks.value = unlocked;
-        // Announced on the card: not new in the list any more.
-        if (unlocked.length > 0 && id.value)
-          markAchievementsSeen(storage, id.value, unlocked);
+      if (upload.playId !== clearedPlayId) return outcome;
+      const body = (await response.json().catch(() => ({}))) as ClearAnswer & {
+        readonly error?: unknown;
+        readonly status?: unknown;
+      };
+      // The card moved on while the answer was read (another board).
+      if (upload.playId !== clearedPlayId) return outcome;
+      if (outcome === "sent") {
+        announceUnlocks(body);
         clearRanking.value = body.entries
           ? { status: "ready", entries: body.entries }
           : { status: "offline" };
-      } else if (response.status === 409 && upload.playId === clearedPlayId) {
-        // Dropped from the queue like any 409; the card says why, rather
-        // than that it will be sent later.
-        const body = (await response.json().catch(() => ({}))) as {
-          status?: unknown;
-        };
-        if (body.status === "expired")
-          clearRanking.value = { status: "expired" };
+      } else if (outcome === "rejected") {
+        // Dropped from the queue; the card says why, rather than that it
+        // will be sent later.
+        if (body.status === "expired") {
+          clearRanking.value = { status: "refused", reason: "expired" };
+        } else if (body.error === "invalid_time") {
+          clearRanking.value = { status: "refused", reason: "invalid_time" };
+        }
       }
       return outcome;
     } catch {

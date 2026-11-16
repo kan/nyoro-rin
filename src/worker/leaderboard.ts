@@ -1,5 +1,6 @@
 import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import type { HintStage } from "../core/attempt";
+import { GENERATOR_VERSIONS } from "../core/generator";
 import type { LeaderboardEntry } from "../core/leaderboard";
 import { NO_HINT_BONUS, SPEED_POINTS } from "../core/results";
 import type { AssistLevel } from "../core/settings";
@@ -9,6 +10,15 @@ import type { AssistLevel } from "../core/settings";
  * The columns are integers, so the division truncates like Math.floor.
  */
 export const SCORE_SQL = `(${SPEED_POINTS} / MAX(1, c.elapsed_seconds) + CASE WHEN c.hints_used = 0 THEN ${NO_HINT_BONUS} ELSE 0 END)`;
+
+/**
+ * The ordinary board versions, as SQL literals for `generator_version IN
+ * (...)`: the collections that leave daily boards (d1) out. The versions
+ * are fixed names of this codebase, so they are inlined.
+ */
+export const ORDINARY_VERSIONS_SQL = GENERATOR_VERSIONS.map(
+  (version) => `'${version}'`,
+).join(", ");
 
 /**
  * The puzzle's ranking: each ID's first ranked clear (the trigger marks only

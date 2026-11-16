@@ -13,10 +13,7 @@ import {
   longestDailyStreak,
   newlyUnlockedAchievementIds,
 } from "../core/achievements";
-import { GENERATOR_VERSIONS } from "../core/generator";
-
-/** The ordinary board versions, as SQL literals (they are fixed names). */
-const ORDINARY_VERSIONS = GENERATOR_VERSIONS.map((v) => `'${v}'`).join(", ");
+import { ORDINARY_VERSIONS_SQL } from "./leaderboard";
 
 const INSERT_ACHIEVEMENT = `INSERT INTO achievements (account_id, achievement_type, unlocked_at)
   VALUES (?, ?, ?) ON CONFLICT(account_id, achievement_type) DO NOTHING`;
@@ -59,7 +56,7 @@ function statsStatement(
               AND completed_at IS NOT NULL
           )) AS days
        FROM (
-         SELECT *, generator_version IN (${ORDINARY_VERSIONS}) AS ordinary
+         SELECT *, generator_version IN (${ORDINARY_VERSIONS_SQL}) AS ordinary
          FROM completed_plays
          WHERE account_id = ?1 AND play_id IS NOT ?2
        )`,

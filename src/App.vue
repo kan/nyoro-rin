@@ -690,10 +690,14 @@ onBeforeUnmount(() => {
                 記録はこの端末に保存しました。通信できるようになったら送ります。
               </p>
               <p
-                v-else-if="online.clearRanking.value?.status === 'expired'"
+                v-else-if="online.clearRanking.value?.status === 'refused'"
                 class="note"
               >
-                この日のデイリーは締め切られたため、記録は残りません。デイリーは翌日の終わりまでに送れた分だけを記録します。
+                {{
+                  online.clearRanking.value.reason === "expired"
+                    ? "この日のデイリーは締め切られたため、記録は残りません。デイリーは翌日の終わりまでに送れた分だけを記録します。"
+                    : "クリアの時間が短すぎるため、記録は受け付けられませんでした。"
+                }}
               </p>
               <template
                 v-else-if="online.clearRanking.value?.status === 'ready'"

@@ -462,8 +462,8 @@ async function postDailyComplete(
     upload,
     Date.now(),
   );
-  if (outcome === "invalid_solution") {
-    return json({ error: "invalid_solution" }, 400);
+  if (outcome === "invalid_solution" || outcome === "invalid_time") {
+    return json({ error: outcome }, 400);
   }
   if (outcome === "not_started" || outcome === "expired") {
     return json({ error: "daily_not_started", status: outcome }, 409);
