@@ -18,6 +18,27 @@ interface Pending {
   reject(error: Error): void;
 }
 
+/**
+ * How long the worker may stay silent before it is given up. A 7 × 7 hard
+ * board takes up to about 0.4 s on a desktop (npm run measure, 2026-11) and
+ * several times that on a slow phone, with the worker's start on top. A
+ * worker silent for this long was most likely stopped by the browser (low
+ * memory, for one): without a limit, the new board would never come.
+ */
+export const REPLY_TIMEOUT_MS = 10000;
+
+export interface PuzzleGeneratorOptions {
+  /** Starts the worker; tests pass a stand-in. */
+  readonly createWorker?: () => Worker;
+  readonly replyTimeoutMs?: number;
+}
+
+function createPuzzleWorker(): Worker {
+  return new Worker(new URL("./puzzle-worker.ts", import.meta.url), {
+    type: "module",
+  });
+}
+
 /** The rejection of a request that a newer one replaced. */
 export class SupersededError extends Error {
   constructor() {
@@ -36,6 +57,14 @@ export class PuzzleGenerator {
   private workerFailed = false;
   private nextId = 1;
   private pending: Pending | undefined;
+  private replyTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly createWorker: () => Worker;
+  private readonly replyTimeoutMs: number;
+
+  constructor(options: PuzzleGeneratorOptions = {}) {
+    this.createWorker = options.createWorker ?? createPuzzleWorker;
+    this.replyTimeoutMs = options.replyTimeoutMs ?? REPLY_TIMEOUT_MS;
+  }
 
   generate(
     seed: string,
@@ -45,6 +74,7 @@ export class PuzzleGenerator {
     if (this.pending) {
       this.pending.reject(new SupersededError());
       this.pending = undefined;
+      this.clearReplyTimer();
       // The worker is busy with the old board; a fresh one starts at once.
       this.stopWorker();
     }
@@ -58,18 +88,20 @@ export class PuzzleGenerator {
     return new Promise((resolve, reject) => {
       this.pending = { request, resolve, reject };
       const worker = this.startWorker();
-      if (worker) worker.postMessage(request);
-      else this.generateHere(this.pending);
+      if (worker) {
+        worker.postMessage(request);
+        this.replyTimer = setTimeout(
+          () => this.onWorkerFailed(),
+          this.replyTimeoutMs,
+        );
+      } else this.generateHere(this.pending);
     });
   }
 
   private startWorker(): Worker | undefined {
     if (this.worker || this.workerFailed) return this.worker;
     try {
-      const worker = new Worker(
-        new URL("./puzzle-worker.ts", import.meta.url),
-        { type: "module" },
-      );
+      const worker = this.createWorker();
       worker.onmessage = (event: MessageEvent<GenerationResponse>) =>
         this.settle(event.data);
       worker.onerror = (event) => {
@@ -88,8 +120,17 @@ export class PuzzleGenerator {
     this.worker = undefined;
   }
 
-  /** From now on, boards are made here; the one in progress too. */
+  private clearReplyTimer(): void {
+    clearTimeout(this.replyTimer);
+    this.replyTimer = undefined;
+  }
+
+  /**
+   * From now on, boards are made here; the one in progress too. This covers
+   * a worker that failed and one that stopped answering.
+   */
   private onWorkerFailed(): void {
+    this.clearReplyTimer();
     this.workerFailed = true;
     this.stopWorker();
     if (this.pending) this.generateHere(this.pending);
@@ -115,6 +156,7 @@ export class PuzzleGenerator {
     const pending = this.pending;
     if (!pending || pending.request.id !== response.id) return;
     this.pending = undefined;
+    this.clearReplyTimer();
     if ("puzzle" in response) pending.resolve(response.puzzle);
     else pending.reject(new Error(response.error));
   }
