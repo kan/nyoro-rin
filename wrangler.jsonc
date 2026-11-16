@@ -23,9 +23,10 @@
   // names are registered through its RPC (src/worker/id-rpc.ts).
   "services": [{ "binding": "ID", "service": "kan-game-local" }],
   // 3:00 in Japan: deletes again any record a withdrawn ID wrote while it
-  // was being deleted (src/worker/accounts.ts). Keep src/worker/index.ts
-  // SWEEP_CRON the same.
-  "triggers": { "crons": ["0 18 * * *"] },
+  // was being deleted (src/worker/accounts.ts). 23:00 in Japan: makes the
+  // next day's daily board (src/worker/daily.ts). Keep src/worker/index.ts
+  // SWEEP_CRON and DAILY_CRON the same.
+  "triggers": { "crons": ["0 18 * * *", "0 14 * * *"] },
   "vars": {
     // The ID cookie and the keys that verify it (kan/game docs/ID_DESIGN.md
     // 「ID と Cookie」). Locally the keys are kan/game's own (its .dev.vars),
@@ -35,8 +36,9 @@
     "ID_PUBLIC_KEYS": "[]",
   },
   "secrets": {
-    // scripts/dev.mjs passes the screen's origin.
-    "required": ["ALLOWED_ORIGINS"],
+    // scripts/dev.mjs passes the screen's origin, and a local-only
+    // DAILY_SEED_SECRET (the key of the daily seeds, DESIGN.md 25.2).
+    "required": ["ALLOWED_ORIGINS", "DAILY_SEED_SECRET"],
   },
   "observability": {
     "enabled": true,
@@ -61,7 +63,7 @@
       // kan/game's development Worker, which calls back GameService
       // (src/worker/game-service.ts) when a player withdraws.
       "services": [{ "binding": "ID", "service": "kan-game-dev" }],
-      "triggers": { "crons": ["0 18 * * *"] },
+      "triggers": { "crons": ["0 18 * * *", "0 14 * * *"] },
       "vars": {
         // Must match kan/game's env.dev (its wrangler.jsonc).
         "ID_COOKIE_NAME": "__Secure-kgdev_id",
@@ -72,8 +74,10 @@
         // Not a secret here: the deployed origin is public.
         "ALLOWED_ORIGINS": "https://nyoro-dev.kan-game.app",
       },
-      // Not inherited from the top level; nothing is secret here.
-      "secrets": { "required": [] },
+      // Not inherited from the top level. The key of the daily seeds is set
+      // with `wrangler secret put DAILY_SEED_SECRET --env dev`
+      // (docs/DEPLOY.md); it never goes in the repository.
+      "secrets": { "required": ["DAILY_SEED_SECRET"] },
     },
     // `npm run deploy:production`.
     "production": {
@@ -91,7 +95,7 @@
       // kan/game's production Worker, which calls back GameService when a
       // player withdraws.
       "services": [{ "binding": "ID", "service": "kan-game" }],
-      "triggers": { "crons": ["0 18 * * *"] },
+      "triggers": { "crons": ["0 18 * * *", "0 14 * * *"] },
       "vars": {
         // Must match kan/game's env.production (its wrangler.jsonc).
         "ID_COOKIE_NAME": "__Secure-kg_id",
@@ -101,7 +105,8 @@
         "ID_PUBLIC_KEYS": "[{\"kid\":\"2026-10-18-ccfc63\",\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"ddT7jKLdotzN141EdW32MjeKrySOCqm_OGKRbA27NBY\",\"y\":\"UR7l_tKX9mUzRzJElH_IFWQ36a0PggvU803FVXI_yqk\"}]",
         "ALLOWED_ORIGINS": "https://nyoro.kan-game.app",
       },
-      "secrets": { "required": [] },
+      // `wrangler secret put DAILY_SEED_SECRET --env production`.
+      "secrets": { "required": ["DAILY_SEED_SECRET"] },
     },
   },
 }

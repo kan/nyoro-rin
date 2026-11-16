@@ -654,6 +654,13 @@ dialog::backdrop {
 
 /* --- the hint panel ------------------------------------------------------------- */
 
+/* On the day's board, the calendar button takes the player back. */
+.daily-button[aria-pressed="true"] {
+  background: var(--color-moss);
+  border-color: var(--color-moss);
+  color: var(--color-moss-ink);
+}
+
 .hint-button {
   color: var(--color-hint);
 }
@@ -813,6 +820,16 @@ dialog::backdrop {
 
 .tabs.two {
   grid-template-columns: repeat(2, 1fr);
+}
+
+/* The records with the daily tab (DESIGN.md 25.6). */
+.tabs.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.tabs.four button {
+  padding-inline: 4px;
+  white-space: nowrap;
 }
 
 .tabs button[aria-selected="true"] {

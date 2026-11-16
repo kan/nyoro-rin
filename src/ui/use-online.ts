@@ -32,6 +32,15 @@ import {
   tutorialPendingFor,
 } from "../core/achievements";
 import {
+  type DailyCompletionUpload,
+  type DailyHistoryEntry,
+  type DailyRanking,
+  type DailyStatus,
+  parseDailyCompletionUpload,
+  parseDailyHistory,
+  parseDailyStatus,
+} from "../core/daily";
+import {
   type FeedbackContext,
   type SentFeedback,
   addSentFeedback,
@@ -73,6 +82,16 @@ export type ProfileResult =
       readonly reason: "name_taken" | "invalid" | "offline" | "failed";
     };
 
+/** How READY's OK fared at taking the day's challenge (DESIGN.md 25.4). */
+export type DailyStartResult =
+  | "started"
+  | "profile_required"
+  | "already_started"
+  | "completed"
+  | "expired"
+  | "offline"
+  | "failed";
+
 export type FeedbackResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: "too_many" | "offline" | "failed" };
@@ -94,6 +113,13 @@ export function useOnline() {
     key: "nyoro-rin.log-outbox.v1",
     parse: parsePlayLogUpload,
     idOf: (log) => log.playId,
+    limit: 20,
+  });
+  /** Daily completions not yet answered (DESIGN.md 25.5). */
+  const dailyCompletions = new Outbox<DailyCompletionUpload>(storage, {
+    key: "nyoro-rin.daily-outbox.v1",
+    parse: parseDailyCompletionUpload,
+    idOf: (upload) => upload.playId,
     limit: 20,
   });
 
@@ -121,7 +147,7 @@ export function useOnline() {
    * When each queue may send again after a 429: until the server's
    * Retry-After, the retry timer leaves it alone.
    */
-  const resumeAt = { plays: 0, logs: 0 };
+  const resumeAt = { plays: 0, logs: 0, daily: 0 };
 
   /** What an answer means for a queued item of the queue. */
   function outcomeOf(
@@ -164,6 +190,26 @@ export function useOnline() {
     }
   }
 
+  async function sendDailyCompletion(
+    upload: DailyCompletionUpload,
+  ): Promise<SendOutcome> {
+    try {
+      const response = await apiPost("/api/daily/complete", upload);
+      const outcome = outcomeOf(response, "daily");
+      if (outcome === "sent" && upload.playId === clearedPlayId) {
+        const body = (await response.json()) as {
+          entries?: LeaderboardEntry[];
+        };
+        clearRanking.value = body.entries
+          ? { status: "ready", entries: body.entries }
+          : { status: "offline" };
+      }
+      return outcome;
+    } catch {
+      return "retry";
+    }
+  }
+
   async function sendLog(log: PlayLogUpload): Promise<SendOutcome> {
     try {
       return outcomeOf(await apiPost("/api/play-logs", log), "logs");
@@ -198,6 +244,8 @@ export function useOnline() {
       const current = () => id.value === account;
       const now = Date.now();
       if (now >= resumeAt.plays) await plays.drain(account, current, sendPlay);
+      if (now >= resumeAt.daily)
+        await dailyCompletions.drain(account, current, sendDailyCompletion);
       if (now >= resumeAt.logs) await logs.drain(account, current, sendLog);
     }
     // A clear that this round did not get a ranking for (offline, outage,
@@ -230,6 +278,25 @@ export function useOnline() {
       clearRanking.value = { status: "offline" };
       return;
     }
+    await sync();
+  }
+
+  /**
+   * The day's loop closed: the completion is queued for the ID and sent,
+   * and the clear card shows the day's ranking from the answer. A queued one
+   * goes again later, the next day included (DESIGN.md 25.5).
+   */
+  async function recordDailyClear(
+    upload: DailyCompletionUpload,
+  ): Promise<void> {
+    if (!id.value) {
+      clearRanking.value = { status: "offline" };
+      return;
+    }
+    clearRanking.value = { status: "sending" };
+    clearedPuzzleId = undefined;
+    clearedPlayId = upload.playId;
+    dailyCompletions.add(id.value, upload);
     await sync();
   }
 
@@ -287,6 +354,86 @@ export function useOnline() {
   async function fetchClearRanking(puzzleId: string): Promise<ClearRanking> {
     const entries = await fetchLeaderboard(puzzleId);
     return entries ? { status: "ready", entries } : { status: "offline" };
+  }
+
+  // --- the daily challenge -------------------------------------------------------
+
+  /**
+   * Today's board and how far the ID got with it; "unauthorized" without a
+   * usable ID, undefined when it could not be read.
+   */
+  async function fetchDaily(): Promise<
+    DailyStatus | "unauthorized" | undefined
+  > {
+    if (!id.value) return "unauthorized";
+    try {
+      const response = await apiFetch("/api/daily");
+      if (response.status === 401 || response.status === 410) {
+        return "unauthorized";
+      }
+      if (!response.ok) return undefined;
+      return parseDailyStatus(await response.json());
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** READY's OK on the day's board: takes the day's one challenge. */
+  async function startDaily(
+    date: string,
+    playId: string,
+  ): Promise<DailyStartResult> {
+    try {
+      const response = await apiPost("/api/daily/start", { date, playId });
+      if (response.ok) return "started";
+      if (response.status === 403) return "profile_required";
+      if (response.status === 409) {
+        const body = (await response.json()) as { status?: unknown };
+        if (
+          body.status === "already_started" ||
+          body.status === "completed" ||
+          body.status === "expired"
+        ) {
+          return body.status;
+        }
+      }
+      return "failed";
+    } catch {
+      return "offline";
+    }
+  }
+
+  /** A day's ranking; undefined when it failed. */
+  async function fetchDailyRanking(
+    date: string,
+  ): Promise<DailyRanking | undefined> {
+    if (!id.value) return undefined;
+    try {
+      const response = await apiFetch(
+        `/api/daily/ranking?date=${encodeURIComponent(date)}`,
+      );
+      if (!response.ok) return undefined;
+      const body = (await response.json()) as Partial<DailyRanking>;
+      return body.date === date && Array.isArray(body.entries)
+        ? { date, entries: body.entries }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** The ID's daily challenges, newest first; undefined when it failed. */
+  async function fetchDailyHistory(): Promise<
+    readonly DailyHistoryEntry[] | undefined
+  > {
+    if (!id.value) return undefined;
+    try {
+      const response = await apiFetch("/api/daily/history");
+      if (!response.ok) return undefined;
+      return parseDailyHistory(await response.json());
+    } catch {
+      return undefined;
+    }
   }
 
   // --- the next puzzle --------------------------------------------------------
@@ -471,6 +618,7 @@ export function useOnline() {
       // Records queued for another ID are not sent for this one.
       plays.keepOnly(account);
       logs.keepOnly(account);
+      dailyCompletions.keepOnly(account);
     },
     { immediate: true },
   );
@@ -497,10 +645,15 @@ export function useOnline() {
     clearUnlocks,
     sentFeedback,
     recordClear,
+    recordDailyClear,
     recordPlayLog,
     forgetClear,
     fetchLeaderboard,
     fetchWeeklyRanking,
+    fetchDaily,
+    startDaily,
+    fetchDailyRanking,
+    fetchDailyHistory,
     fetchAchievements,
     seenAchievements,
     markAchievementSeen,

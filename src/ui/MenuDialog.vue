@@ -15,6 +15,7 @@ import { type AssistLevel, type Settings } from "../core/settings";
 import AboutPanel from "./AboutPanel.vue";
 import AccountPanel from "./AccountPanel.vue";
 import AchievementsPanel from "./AchievementsPanel.vue";
+import DailyRankingPanel from "./DailyRankingPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
 import InstallSteps from "./InstallSteps.vue";
 import LeaderboardList from "./LeaderboardList.vue";
@@ -32,6 +33,7 @@ export type MenuPage =
   | "records"
   | "ranking"
   | "weekly"
+  | "daily"
   | "achievements"
   | "account"
   | "feedback"
@@ -47,6 +49,7 @@ const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   records: "成績",
   ranking: "この問題のランキング",
   weekly: "週間ランキング",
+  daily: "デイリーのランキング",
   achievements: "実績",
   account: "アカウント",
   feedback: "感想を送る",
@@ -72,6 +75,10 @@ const props = defineProps<{
   feedbackContext: FeedbackContext;
   /** The page the menu opens at; the top by default. */
   initialPage?: MenuPage;
+  /** The day of the daily board on screen, if one is. */
+  dailyDate?: string;
+  /** The day the daily ranking page opens at. */
+  dailyRankingDate?: string;
 }>();
 
 const settings = defineModel<Settings>("settings", { required: true });
@@ -216,7 +223,7 @@ async function copySeed(): Promise<void> {
         <button type="button" @click="page = 'records'">
           <UiIcon name="records" />成績
         </button>
-        <button type="button" @click="page = 'ranking'">
+        <button type="button" @click="page = dailyDate ? 'daily' : 'ranking'">
           <UiIcon name="records" />この問題のランキング
         </button>
         <button type="button" @click="page = 'weekly'">
@@ -272,6 +279,7 @@ async function copySeed(): Promise<void> {
           v-model:difficulty="recordsDifficulty"
           :history="history"
           :current-play-id="currentPlayId"
+          :online="online"
         />
       </section>
 
@@ -294,6 +302,14 @@ async function copySeed(): Promise<void> {
         >
           名前を決めてランキングに参加する
         </button>
+      </section>
+
+      <section v-else-if="page === 'daily'" class="menu-page">
+        <DailyRankingPanel
+          v-if="dailyRankingDate ?? dailyDate"
+          :online="online"
+          :date="(dailyRankingDate ?? dailyDate)!"
+        />
       </section>
 
       <section v-else-if="page === 'achievements'" class="menu-page">
@@ -322,7 +338,10 @@ async function copySeed(): Promise<void> {
 
       <section v-else-if="page === 'seed'" class="menu-page">
         <h3>この問題のシード</h3>
-        <div class="seed-row">
+        <p v-if="!seedCode" class="note">
+          デイリーの盤面にはシードがありません。共有やシードからの復元はできません。
+        </p>
+        <div v-else class="seed-row">
           <code class="seed-code">{{ seedCode }}</code>
           <button
             type="button"
@@ -334,7 +353,9 @@ async function copySeed(): Promise<void> {
             <UiIcon name="copy" />
           </button>
         </div>
-        <p class="note" role="status">{{ copied ? "コピーしました" : "" }}</p>
+        <p v-if="seedCode" class="note" role="status">
+          {{ copied ? "コピーしました" : "" }}
+        </p>
         <h3>シードから始める</h3>
         <form class="seed-form" @submit.prevent="submitSeed">
           <input

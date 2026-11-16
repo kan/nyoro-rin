@@ -14,6 +14,7 @@ import {
   watch,
 } from "vue";
 import { achievementDefinition } from "./core/achievements";
+import { dailyPuzzleFromBoard, loadDailyGame } from "./core/daily";
 import { type DifficultyChoice } from "./core/difficulty-choice";
 import { type FeedbackContext, type FeedbackSource } from "./core/feedback";
 import { completedPlay } from "./core/results";
@@ -95,7 +96,11 @@ const readyButton = ref<HTMLButtonElement>();
 let pendingStart: (() => Promise<boolean>) | undefined;
 
 const difficultyLabel = computed(() =>
-  puzzle.value ? DIFFICULTY_LABELS[puzzle.value.difficulty] : "",
+  play.daily.value
+    ? "デイリー"
+    : puzzle.value
+      ? DIFFICULTY_LABELS[puzzle.value.difficulty]
+      : "",
 );
 
 /** READY covers the board, so the time off the clock is not time to think. */
@@ -157,12 +162,39 @@ const clearedPlay = computed(() =>
 );
 
 /**
+ * What the clear card shows: the local record of an ordinary board, or the
+ * day's result (the day's board is recorded by the server only).
+ */
+const clearStats = computed(() => {
+  if (!play.daily.value) return clearedPlay.value;
+  const attempt = play.attempt.value;
+  return attempt && solved.value
+    ? {
+        elapsedSeconds: play.elapsedSeconds.value,
+        hintsUsed: attempt.hintsUsed,
+      }
+    : undefined;
+});
+
+/**
  * The loop closed: the snake goes once round it, then the card comes
  * (DESIGN.md chapter 10).
  */
 function showClear(): void {
   zoom.value = undefined;
   clearPhase.value = "lap";
+  const session = play.daily.value;
+  const attempt = play.attempt.value;
+  if (session && attempt && puzzle.value) {
+    void online.recordDailyClear({
+      ...attempt,
+      date: session.date,
+      puzzleId: session.puzzleId,
+      elapsedSeconds: play.elapsedSeconds.value,
+      loop: [...puzzle.value.solution],
+    });
+    return;
+  }
   const cleared = clearedPlay.value;
   if (cleared && puzzle.value) void online.recordClear(cleared, puzzle.value);
 }
@@ -258,6 +290,13 @@ function onKeydown(event: KeyboardEvent): void {
  * first: the lines and × on it would be lost.
  */
 function requestStart(start: () => Promise<boolean>): void {
+  // From the day's board, the ordinary board comes back first (the day's is
+  // kept): leaving that one is what to ask about.
+  if (play.daily.value) {
+    clearPhase.value = undefined;
+    online.forgetClear();
+    play.leaveDaily();
+  }
   holdClock();
   panel.value = undefined;
   if (play.marked.value && !solved.value) {
@@ -315,6 +354,156 @@ function loadSeed(code: SeedCode): void {
   requestStart(() => play.load(code));
 }
 
+// --- the daily challenge (DESIGN.md chapter 25) -------------------------------
+
+/** Why the day's board did not open, shown above the board for a while. */
+const dailyNotice = ref<string>();
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+function noticeDaily(text: string): void {
+  dailyNotice.value = text;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => (dailyNotice.value = undefined), 8000);
+}
+/** The day whose ranking the menu shows. */
+const dailyRankingDate = ref<string>();
+const dailyOpening = ref(false);
+/** Why READY's OK could not take the day's challenge. */
+const dailyStartError = ref<string>();
+const dailyStarting = ref(false);
+
+const DAILY_START_ERRORS: Readonly<Record<string, string>> = {
+  profile_required:
+    "デイリーには、プレイヤー名とランキングへの参加が必要です。メニューの「アカウント」で設定してください。",
+  already_started:
+    "今日の挑戦は別の端末か画面で始まっています。始めた端末で続けてください。",
+  completed: "今日のデイリーはクリア済みです。",
+  expired:
+    "日付が変わりました。通常の問題に戻り、今日のデイリーを開き直してください。",
+  offline:
+    "通信できませんでした。通信できる場所で、もう一度 OK を押してください。",
+  failed: "今は始められません。少し待ってから、もう一度 OK を押してください。",
+};
+
+/** The day on the board, as 11月16日. */
+const dailyLabel = computed(() => {
+  const date = play.daily.value?.date;
+  if (!date) return "";
+  const [, month, day] = date.split("-").map(Number);
+  return `${month}月${day}日`;
+});
+
+/** The ranking of the day on the board, in the menu. */
+function openDailyRanking(): void {
+  dailyRankingDate.value = play.daily.value?.date;
+  openPanel("menu", "daily");
+}
+
+/**
+ * The calendar button: today's board. Without a name and consent, the
+ * account page; done today, the day's ranking; started on another device, a
+ * notice; otherwise READY (taken up again where this device left it).
+ */
+async function openDaily(): Promise<void> {
+  if (play.daily.value) {
+    backToOrdinary();
+    return;
+  }
+  const account = online.id.value;
+  if (!account || !online.profile.value) {
+    noticeDaily("デイリーには、プレイヤー名とランキングへの参加が必要です。");
+    openPanel("menu", "account");
+    return;
+  }
+  if (dailyOpening.value) return;
+  dailyOpening.value = true;
+  try {
+    const status = await online.fetchDaily();
+    if (status === "unauthorized") {
+      openPanel("menu", "account");
+      return;
+    }
+    if (!status) {
+      noticeDaily(
+        "デイリーを読み込めませんでした。通信状態を確認してください。",
+      );
+      return;
+    }
+    const { board } = status;
+    if (status.attempt === "completed") {
+      dailyRankingDate.value = board.date;
+      openPanel("menu", "daily");
+      return;
+    }
+    const storage = browserStorage();
+    const saved = storage && loadDailyGame(storage, account, board.date);
+    if (
+      status.attempt === "active" &&
+      saved?.attempt.playId !== status.playId
+    ) {
+      noticeDaily(
+        "今日の挑戦は別の端末で始まっています。始めた端末で続けてください。",
+      );
+      return;
+    }
+    const daily = await dailyPuzzleFromBoard(board);
+    if (!daily) {
+      noticeDaily("デイリーの盤面を確かめられませんでした。");
+      return;
+    }
+    // The ordinary board stays as it is: nothing to confirm.
+    clearPhase.value = undefined;
+    online.forgetClear();
+    zoom.value = undefined;
+    resumeOnClose = false;
+    dailyStartError.value = undefined;
+    panel.value = undefined;
+    play.enterDaily(
+      { account, date: board.date, puzzleId: board.puzzleId },
+      daily,
+      status.playId,
+    );
+    // A board finished on this device whose completion is still queued.
+    if (play.solved.value) clearPhase.value = "card";
+  } finally {
+    dailyOpening.value = false;
+  }
+}
+
+/** From the day's board back to the ordinary one, or a new one. */
+function backToOrdinary(): void {
+  clearPhase.value = undefined;
+  online.forgetClear();
+  zoom.value = undefined;
+  dailyStartError.value = undefined;
+  if (!play.leaveDaily()) {
+    void play.startNew(difficulty.next(), online.nextPuzzleCandidates());
+  }
+}
+
+/**
+ * READY's OK. On the day's board, the first OK takes the day's challenge
+ * from the server before the clock runs: once taken, it cannot be taken
+ * again on another device or after a reload.
+ */
+async function onReadyOk(): Promise<void> {
+  const session = play.daily.value;
+  const attempt = play.attempt.value;
+  if (session && attempt && !session.started) {
+    if (dailyStarting.value) return;
+    dailyStarting.value = true;
+    dailyStartError.value = undefined;
+    const result = await online.startDaily(session.date, attempt.playId);
+    dailyStarting.value = false;
+    if (play.daily.value !== session) return;
+    if (result !== "started") {
+      dailyStartError.value = DAILY_START_ERRORS[result];
+      return;
+    }
+    play.markDailyStarted();
+  }
+  play.start();
+}
+
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("blur", suspend);
@@ -368,6 +557,9 @@ onBeforeUnmount(() => {
           <span v-if="loading" class="status-text">問題を作っています…</span>
           <span v-else-if="play.failure.value" class="status-text error">
             {{ play.failure.value }}
+          </span>
+          <span v-else-if="dailyNotice" class="status-text error">
+            {{ dailyNotice }}
           </span>
         </span>
       </div>
@@ -454,18 +646,21 @@ onBeforeUnmount(() => {
           >
             <img class="clear-icon" src="/nyoro.svg" alt="" />
             <h2 id="clear-title">輪が閉じました</h2>
-            <dl v-if="clearedPlay" class="stats">
+            <p v-if="play.daily.value" class="note">
+              {{ dailyLabel }}のデイリー
+            </p>
+            <dl v-if="clearStats" class="stats">
               <div>
                 <dt>時間</dt>
-                <dd>{{ formatSeconds(clearedPlay.elapsedSeconds) }}</dd>
+                <dd>{{ formatSeconds(clearStats.elapsedSeconds) }}</dd>
               </div>
               <div>
                 <dt>ヒント</dt>
-                <dd>{{ clearedPlay.hintsUsed }}</dd>
+                <dd>{{ clearStats.hintsUsed }}</dd>
               </div>
               <div>
                 <dt>スコア</dt>
-                <dd>{{ formatScore(clearedPlay) }}</dd>
+                <dd>{{ formatScore(clearStats) }}</dd>
               </div>
             </dl>
             <!-- Achievements this clear unlocked (DESIGN.md 20.4). -->
@@ -501,7 +696,15 @@ onBeforeUnmount(() => {
                   :limit="3"
                 />
                 <button
-                  v-if="!online.profile.value"
+                  v-if="play.daily.value"
+                  type="button"
+                  class="text-button"
+                  @click="openDailyRanking"
+                >
+                  この日のランキングをすべて見る
+                </button>
+                <button
+                  v-else-if="!online.profile.value"
                   type="button"
                   class="text-button"
                   @click="openPanel('menu', 'account')"
@@ -510,7 +713,18 @@ onBeforeUnmount(() => {
                 </button>
               </template>
             </div>
-            <div class="clear-actions">
+            <div v-if="play.daily.value" class="clear-actions">
+              <button type="button" class="primary" @click="backToOrdinary">
+                <UiIcon name="next" />通常の問題に戻る
+              </button>
+              <button type="button" @click="clearPhase = undefined">
+                盤面を見る
+              </button>
+              <button type="button" @click="openPanel('menu', 'feedback')">
+                感想を送る
+              </button>
+            </div>
+            <div v-else class="clear-actions">
               <select
                 :value="difficulty.choice.value"
                 class="difficulty-select"
@@ -601,6 +815,17 @@ onBeforeUnmount(() => {
         </button>
         <button
           type="button"
+          class="icon-button daily-button"
+          :aria-label="play.daily.value ? '通常の問題に戻る' : '今日のデイリー'"
+          :title="play.daily.value ? '通常の問題に戻る' : '今日のデイリー'"
+          :aria-pressed="play.daily.value !== undefined"
+          :disabled="dailyOpening"
+          @click="openDaily"
+        >
+          <UiIcon name="calendar" />
+        </button>
+        <button
+          type="button"
           class="icon-button"
           aria-label="次の問題へ"
           title="次の問題"
@@ -652,6 +877,16 @@ onBeforeUnmount(() => {
         aria-labelledby="ready-title"
       >
         <h2 id="ready-title">READY?</h2>
+        <template v-if="play.daily.value">
+          <p class="note">{{ dailyLabel }}のデイリー（10×10・上級）</p>
+          <p v-if="!play.daily.value.started" class="note">
+            OK を押すと挑戦が始まります。挑戦は 1 日 1
+            回で、別の端末や再読み込みではやり直せません。
+          </p>
+          <p v-if="dailyStartError" class="note error" role="alert">
+            {{ dailyStartError }}
+          </p>
+        </template>
         <p v-if="loading" class="note">問題を作っています…</p>
         <p v-else-if="play.elapsedSeconds.value > 0" class="note">
           一時停止中（{{ formatSeconds(play.elapsedSeconds.value) }}）
@@ -661,13 +896,16 @@ onBeforeUnmount(() => {
             ref="readyButton"
             type="button"
             class="primary"
-            :disabled="loading"
-            @click="play.start"
+            :disabled="loading || dailyStarting"
+            @click="onReadyOk"
           >
             OK
           </button>
           <button type="button" @click="openPanel('menu')">
             <UiIcon name="menu" />メニュー
+          </button>
+          <button v-if="play.daily.value" type="button" @click="backToOrdinary">
+            通常の問題に戻る
           </button>
         </div>
       </section>
@@ -676,7 +914,9 @@ onBeforeUnmount(() => {
     <MenuDialog
       v-model:settings="settings"
       :open="panel === 'menu'"
-      :seed-code="play.seedCode.value"
+      :seed-code="play.daily.value ? '' : play.seedCode.value"
+      :daily-date="play.daily.value?.date"
+      :daily-ranking-date="dailyRankingDate"
       :difficulty="puzzle?.difficulty"
       :choice="difficulty.choice.value"
       :history="play.history.value"

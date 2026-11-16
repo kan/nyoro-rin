@@ -28,11 +28,13 @@ import {
   UNKNOWN,
   isDifficulty,
 } from "./model";
-import { isSeedCodeOf } from "./seed-code";
+import { isRecordedSeedCode } from "./daily-code";
 import { type AssistLevel, isAssistLevel } from "./settings";
 import { type KeyValueStorage, isRecord, readJson, writeJson } from "./storage";
 
 export const PLAY_LOG_KEY = "nyoro-rin.play-log.v1";
+/** The daily board's log, kept apart so the ordinary board's log survives. */
+export const DAILY_PLAY_LOG_KEY = "nyoro-rin.daily-play-log.v1";
 
 /** A log stops growing here (and says so); a real one is far shorter. */
 export const MAX_LOG_EVENTS = 3000;
@@ -155,13 +157,21 @@ export function hasEnded(log: PlayLog): boolean {
 
 // --- saving on the device ---------------------------------------------------
 
-export function loadPlayLog(storage: KeyValueStorage, playId: string): PlayLog {
-  const saved = readJson(storage, PLAY_LOG_KEY, parsePlayLog);
+export function loadPlayLog(
+  storage: KeyValueStorage,
+  playId: string,
+  key = PLAY_LOG_KEY,
+): PlayLog {
+  const saved = readJson(storage, key, parsePlayLog);
   return saved?.playId === playId ? saved : emptyPlayLog(playId);
 }
 
-export function savePlayLog(storage: KeyValueStorage, log: PlayLog): boolean {
-  return writeJson(storage, PLAY_LOG_KEY, { version: 1, ...log });
+export function savePlayLog(
+  storage: KeyValueStorage,
+  log: PlayLog,
+  key = PLAY_LOG_KEY,
+): boolean {
+  return writeJson(storage, key, { version: 1, ...log });
 }
 
 function parsePlayLog(value: unknown): PlayLog | undefined {
@@ -283,7 +293,8 @@ export function parsePlayLogUpload(value: unknown): PlayLogUpload | undefined {
     !attempt ||
     !isDifficulty(difficulty) ||
     typeof generatorVersion !== "string" ||
-    !isSeedCodeOf(seedCode, generatorVersion, difficulty) ||
+    // An ordinary seed code, or the daily board's name (DESIGN.md 25.2).
+    !isRecordedSeedCode(seedCode, generatorVersion, difficulty) ||
     !isPlayOutcome(outcome) ||
     !isCount(endedAt) ||
     endedAt < attempt.startedAt ||

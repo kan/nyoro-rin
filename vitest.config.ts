@@ -27,7 +27,11 @@ export default defineConfig(async () => {
               // The Worker with an in-memory D1, never a remote database.
               wrangler: { configPath: "./tests/wrangler.jsonc" },
               miniflare: {
-                bindings: { TEST_MIGRATIONS: migrations },
+                bindings: {
+                  TEST_MIGRATIONS: migrations,
+                  // As tests/worker-env.ts TEST_DAILY_SEED_SECRET.
+                  DAILY_SEED_SECRET: "nyoro-test-daily-secret",
+                },
               },
             }),
           ],

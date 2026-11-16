@@ -7,6 +7,12 @@ import {
   RANKING_CONSENT_VERSION,
   validateGameName,
 } from "../core/account-profile";
+import { isPlayId } from "../core/attempt";
+import {
+  dailyDate,
+  isDailyDate,
+  parseDailyCompletionUpload,
+} from "../core/daily";
 import { parseFeedbackUpload } from "../core/feedback";
 import {
   parseCompletedPlayUpload,
@@ -23,6 +29,14 @@ import {
   unlockClientAchievement,
 } from "./achievements";
 import { authenticateAccount } from "./auth";
+import {
+  completeDailyAttempt,
+  getDailyStatus,
+  listDailyHistory,
+  listDailyRanking,
+  prepareNextDailyBoard,
+  startDailyAttempt,
+} from "./daily";
 import { saveFeedback } from "./feedback";
 import {
   type SaveOutcome,
@@ -47,8 +61,10 @@ const MAX_PLAY_LOG_BYTES = 1024 * 1024;
 /** 1,000 characters of up to 4 bytes, and the context. */
 const MAX_FEEDBACK_BYTES = 8192;
 
-/** The daily run, which must match wrangler.jsonc's triggers. */
+/** The daily runs, which must match wrangler.jsonc's triggers. */
 export const SWEEP_CRON = "0 18 * * *";
+/** 23:00 in Japan: tomorrow's daily board (DESIGN.md 25.3). */
+export const DAILY_CRON = "0 14 * * *";
 
 type Handler = (
   env: Env,
@@ -88,6 +104,16 @@ const ACCOUNT_ROUTES: Readonly<Record<string, AccountRoute>> = {
   "/api/achievements/unlock": {
     post: postAchievementUnlock,
     limit: MAX_BODY_BYTES,
+  },
+  // The daily challenge (DESIGN.md chapter 25). The board and the records
+  // need an ID; starting needs a name and consent too.
+  "/api/daily": { get: getDaily },
+  "/api/daily/start": { post: postDailyStart, limit: MAX_BODY_BYTES },
+  "/api/daily/complete": { post: postDailyComplete, limit: MAX_BODY_BYTES },
+  "/api/daily/ranking": { get: getDailyRanking },
+  "/api/daily/history": {
+    get: async (env, accountId) =>
+      json({ plays: await listDailyHistory(env.DB, accountId) }),
   },
   "/api/play-logs": { post: postPlayLog, limit: MAX_PLAY_LOG_BYTES },
   "/api/feedback": { post: postFeedback, limit: MAX_FEEDBACK_BYTES },
@@ -163,13 +189,26 @@ export default {
   },
 
   async scheduled(controller, env): Promise<void> {
-    if (controller.cron !== SWEEP_CRON) {
-      console.error(
-        JSON.stringify({ event: "unknown_cron", cron: controller.cron }),
+    if (controller.cron === SWEEP_CRON) {
+      await sweepDeletedAccounts(env.DB);
+      return;
+    }
+    if (controller.cron === DAILY_CRON) {
+      // A failure here is retried by that day's first request.
+      if (!env.DAILY_SEED_SECRET) {
+        logError("daily_prepare_failure", "DAILY_SEED_SECRET is not set");
+        return;
+      }
+      await prepareNextDailyBoard(
+        env.DB,
+        env.DAILY_SEED_SECRET,
+        controller.scheduledTime,
       );
       return;
     }
-    await sweepDeletedAccounts(env.DB);
+    console.error(
+      JSON.stringify({ event: "unknown_cron", cron: controller.cron }),
+    );
   },
 } satisfies ExportedHandler<Env>;
 
@@ -339,6 +378,110 @@ async function postPlay(
     { status: outcome, entries, newAchievements },
     outcome === "created" ? 201 : 200,
   );
+}
+
+/** A daily request without the seed key set: nothing to make boards with. */
+function dailyUnavailable(env: Env): Response | undefined {
+  if (env.DAILY_SEED_SECRET) return undefined;
+  logError("daily_unavailable", "DAILY_SEED_SECRET is not set");
+  return json({ error: "daily_unavailable" }, 503);
+}
+
+/**
+ * GET /api/daily: today's board without its solution, and whether the ID
+ * has started or completed it. Makes the board if the scheduled run missed.
+ */
+async function getDaily(env: Env, accountId: string): Promise<Response> {
+  return (
+    dailyUnavailable(env) ??
+    json(
+      await getDailyStatus(
+        env.DB,
+        env.DAILY_SEED_SECRET,
+        accountId,
+        Date.now(),
+      ),
+    )
+  );
+}
+
+/**
+ * POST /api/daily/start, at READY's OK: takes the ID's one challenge of the
+ * day. Only a named player who consented to the ranking may take it.
+ */
+async function postDailyStart(
+  env: Env,
+  accountId: string,
+  body: unknown,
+): Promise<Response> {
+  const unavailable = dailyUnavailable(env);
+  if (unavailable) return unavailable;
+  const { date, playId } = (body ?? {}) as { date?: unknown; playId?: unknown };
+  if (!isDailyDate(date) || !isPlayId(playId)) {
+    return json({ error: "invalid_daily_start" }, 400);
+  }
+  if (!(await getAccountProfile(env.DB, accountId))) {
+    return json({ error: "profile_required" }, 403);
+  }
+  const outcome = await startDailyAttempt(
+    env.DB,
+    env.DAILY_SEED_SECRET,
+    accountId,
+    date,
+    playId,
+    Date.now(),
+  );
+  if (outcome === "started") return json({ status: outcome }, 201);
+  if (outcome === "duplicate") return json({ status: outcome });
+  return json({ error: "daily_unavailable_to_start", status: outcome }, 409);
+}
+
+/**
+ * POST /api/daily/complete: the loop is checked against the stored
+ * solution; answered with the day's ranking, as a clear is.
+ */
+async function postDailyComplete(
+  env: Env,
+  accountId: string,
+  body: unknown,
+): Promise<Response> {
+  const upload = parseDailyCompletionUpload(body);
+  if (!upload) return json({ error: "invalid_daily_completion" }, 400);
+  const outcome = await completeDailyAttempt(
+    env.DB,
+    accountId,
+    upload,
+    Date.now(),
+  );
+  if (outcome === "invalid_solution") {
+    return json({ error: "invalid_solution" }, 400);
+  }
+  if (outcome === "not_started" || outcome === "expired") {
+    return json({ error: "daily_not_started", status: outcome }, 409);
+  }
+  const entries = await listDailyRanking(env.DB, upload.date, accountId).catch(
+    () => undefined,
+  );
+  return json(
+    { status: outcome, entries },
+    outcome === "completed" ? 201 : 200,
+  );
+}
+
+/** GET /api/daily/ranking?date=YYYY-MM-DD: a day up to today. */
+async function getDailyRanking(
+  env: Env,
+  accountId: string,
+  url: URL,
+): Promise<Response> {
+  const date = url.searchParams.get("date");
+  if (!isDailyDate(date) || date > dailyDate(Date.now())) {
+    return json({ error: "invalid_date" }, 400);
+  }
+  return json({
+    date,
+    entries: await listDailyRanking(env.DB, date, accountId),
+  });
 }
 
 /**

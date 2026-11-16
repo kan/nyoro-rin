@@ -28,6 +28,7 @@
 - 問題 ID は `p1:<SHA-256 hex>`。UTF-8 の正規形 `JSON.stringify(["p1", generatorVersion, size, clues])` から作る。`size` は 1 辺のマス数（7 か 10）、`clues` は上の数字の配列。正解・シード・難易度は含めない
 - 問題 ID を作る前に、数字の値域と唯一解を検証する
 - 結果の登録で受け付けるシードコードは、前後に空白のないものに限る
+- デイリーの盤面の版は `d1` で、通常の版とは別に凍結する（[`DESIGN.md`](./DESIGN.md) 25.2）。d1 はシードコードを持たず、プレイログと感想では盤面を `NYORO:d1:hard:<日付>` と名付ける（シードの入力欄は受け付けない）。問題 ID は通常と同じ式で、版に `d1` が入る
 
 ## ローカル保存と版
 
@@ -48,6 +49,9 @@
 | `nyoro-rin.account-profile.v1:<ID>` | ID ごとのプレイヤー名と同意の写し（表示用） |
 | `nyoro-rin.ranking-invite.v1` | ランキングへの参加の案内を出したか（JSON の `true`。DESIGN.md 第 20 章） |
 | `nyoro-rin.tutorial.v1` | チュートリアルを見たか（JSON の `true`。DESIGN.md 11.5） |
+| `nyoro-rin.daily-games.v1` | プレイ中のデイリーの盤面（`version: 1`。ID と日付ごと。「デイリー」） |
+| `nyoro-rin.daily-play-log.v1` | プレイ中のデイリーの試行のプレイログ（`version: 1`） |
+| `nyoro-rin.daily-outbox.v1` | 未送信のデイリーの完了（`version: 1`、同期キューと同じ形、20 件まで） |
 
 `sessionStorage`（タブごと）には、`nyoro-rin.stale-chunk-reload` だけを置きます。古いファイルの読み込みに失敗して画面を読み込み直した時刻（ミリ秒）で、1 分以内に繰り返さないために使います（DESIGN.md 21.1）。
 
@@ -139,6 +143,11 @@ TAKO-SEN と違い、ミス数はありません。
 | `GET /api/weekly-ranking`         | 不要 | 週間ランキング（DESIGN.md 20.3）             |
 | `GET /api/achievements`           | ID   | 本人の実績の一覧（DESIGN.md 20.4）           |
 | `POST /api/achievements/unlock`   | ID   | 画面が知らせる実績（遊び方の完了）を解除する |
+| `GET /api/daily`                  | ID   | 今日のデイリーの盤面と、本人の挑戦の状態     |
+| `POST /api/daily/start`           | ID・名前 | 今日のデイリーの挑戦を始める（READY の OK） |
+| `POST /api/daily/complete`        | ID   | デイリーの完了を登録する                     |
+| `GET /api/daily/ranking`          | ID   | その日のデイリーのランキング                 |
+| `GET /api/daily/history`          | ID   | 本人のデイリーの挑戦（新しい順に最大 500 件）|
 | `POST /api/play-logs`             | ID   | 試行 1 回分のプレイログを登録する            |
 | `POST /api/feedback`              | ID   | 感想を 1 件登録する                          |
 
@@ -229,11 +238,68 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 - 端末は、カードで知らせた実績と、一覧で押したタイルの id を `nyoro-rin.achievements-seen.v1:<アカウント ID>` に配列で残し、それ以外の解除済みに「NEW」を付ける。遊び方の完了の送り待ちは `nyoro-rin.tutorial-achievement.v1` に、終えたときの ID（ID がなければ空文字、送れたら `null`）を残す。別の ID には送らない
 - 退会では `achievements` も削除する（`ACCOUNT_TABLES`）
 
+### デイリー
+
+[`DESIGN.md`](./DESIGN.md) 第 25 章のデイリーです。形式の正本は `src/core/daily.ts`、生成は `src/core/daily-generator.ts`、サーバーは `src/worker/daily.ts` です。
+
+- 日付は日本時間の暦日 `YYYY-MM-DD`（`dailyDate`）。0 時に切り替わる
+- 盤面は 10 × 10、版 `d1`、上級。シードは Worker の secret `DAILY_SEED_SECRET` を鍵にした `HMAC-SHA256("nyoro-daily:<日付>")` の 16 進表記（`dailySeed`）。n1 がそのシードで作れなければ `<シード>:1`〜`<シード>:7` を順に試す。シードはどの API も返さない
+- 盤面は `daily_puzzles` に保存して固定する。定期実行（`0 14 * * *`、日本時間 23:00）が翌日の盤面を作る。無い日は、その日の最初の `GET /api/daily` か `POST /api/daily/start` で作る。同時に作っても `ON CONFLICT DO NOTHING` で 1 つに決まる
+- `DAILY_SEED_SECRET` が無いと、デイリーの API は `503 daily_unavailable` を返す
+
+`GET /api/daily` の応答:
+
+```json
+{
+  "board": {
+    "date": "2026-11-16",
+    "puzzleId": "p1:...",
+    "generatorVersion": "d1",
+    "size": 10,
+    "clues": [null, 2, 3]
+  },
+  "attempt": "not_started",
+  "playId": "UUID"
+}
+```
+
+- `board` に正解は含めない。画面は数字から Complete Solver で解を求め、`puzzleId` と照合してから出す
+- `attempt` は `not_started`（`playId` なし）・`active`・`completed`。`playId` はサーバーが受け付けた挑戦のもの
+
+`POST /api/daily/start` の本文は `{ date, playId }`。
+
+- プレイヤー名と公開への同意がなければ `403 profile_required`
+- `date` が今日でなければ `409`（`status: "expired"`）
+- 主キー `(account_id, challenge_date)` で 1 件だけ受け付ける。受け付けたら `201 { status: "started" }`、同じ `playId` の再送は `200 { status: "duplicate" }`。別の `playId` は `409`（`status: "already_started"`）、完了済みなら `409`（`status: "completed"`）
+- `date` か `playId` の形が違えば `400 invalid_daily_start`
+
+`POST /api/daily/complete` の本文は、試行の値（`playId`・`startedAt`・`hintsUsed`・`maxHintStage`・`maxAssist`・`reveals`）に `date`・`puzzleId`・`elapsedSeconds`・`loop`（輪の辺の番号、昇順）を足したもの。
+
+- `puzzleId` と `loop` を、保存した盤面の問題 ID と正解に照合する。違えば `400 invalid_solution`。形が違えば `400 invalid_daily_completion`
+- 開始済みで未完了の挑戦（同じ `playId`）だけを、1 回の UPDATE で完了にする（`completed_at` はサーバーの時刻）。時間・ヒント・アシストは端末の申告値
+- 今日より後の日付は `409`（`status: "expired"`）、開始していない・別の `playId` は `409`（`status: "not_started"`）。開始済みの過去の日の完了は受け付ける
+- 完了したら `201 { status: "completed", entries }`、同じ挑戦の再送は `200 { status: "duplicate", entries }`（成績は変えない）。`entries` はその日のランキング
+- 端末は完了を `nyoro-rin.daily-outbox.v1` に入れて送り、`400`・`409` は捨て、ほかは送り直す
+
+`GET /api/daily/ranking?date=YYYY-MM-DD`:
+
+- 今日までの日付だけ。それ以外は `400 invalid_date`
+- 応答は `{ date, entries }`。各行は問題別ランキングと同じ `{ rank, displayName, elapsedSeconds, hintsUsed, maxHintStage, maxAssist, isSelf }`
+- 完了した挑戦のうち、プロフィールの同意が今も有効なプレイヤーを、スコア（`SCORE_SQL`）の降順、同点なら時間・ヒントの昇順に並べる。同成績は同順位。上位 100 人と、圏外なら本人の行（最大 101 行）。アカウント ID・`playId`・正解は返さない
+
+`GET /api/daily/history` は本人の挑戦を、日付の新しい順に最大 500 件、`{ plays: [{ playId, date, startedAt, completedAt, elapsedSeconds, hintsUsed, maxHintStage, maxAssist }] }` で返す。未完了の挑戦は `completedAt` から後を `null` にする。名前と同意は要らない。盤面と正解は含めない。
+
+端末の保存:
+
+- プレイ中のデイリーの盤面は `nyoro-rin.daily-games.v1` に `{ version: 1, games: [{ account, date, game }] }` として、日付の新しい順に 7 件まで持つ。`game` はプレイ中の状態と同じ形で、`seedCode` は `NYORO:d1:hard:<日付>`。通常の盤面（`nyoro-rin.current-game.v1`）とは混ぜない。端末間で同期しない
+- デイリーの試行のプレイログは `nyoro-rin.daily-play-log.v1` に、通常の試行のログとは別に持つ
+- デイリーの盤面は、ローカルの成績（`nyoro-rin.results.v1`）に入れない
+
 ### プレイログ
 
 [`DESIGN.md`](./DESIGN.md) 20.1 のプレイログです。形式の正本は `src/core/play-log.ts` です。
 
-端末は、プレイ中の試行のログを `nyoro-rin.play-log.v1` に `{ version: 1, playId, events, truncated }` として持ちます。`playId` がプレイ中の状態と違うログは読み捨てます。試行が終わったら `POST /api/play-logs` の本文を作り、未送信のプレイログ（`nyoro-rin.log-outbox.v1`、同期キューと同じ形、20 件まで）に入れて送ります。
+端末は、プレイ中の試行のログを `nyoro-rin.play-log.v1` に `{ version: 1, playId, events, truncated }` として持ちます。`playId` がプレイ中の状態と違うログは読み捨てます。試行が終わったら `POST /api/play-logs` の本文を作り、未送信のプレイログ（`nyoro-rin.log-outbox.v1`、同期キューと同じ形、20 件まで）に入れて送ります。デイリーの試行（版 `d1`）では、`seedCode` を盤面の名前 `NYORO:d1:hard:<日付>` にし、`difficulty` を `hard` にします（「デイリー」）。
 
 `POST /api/play-logs` の本文:
 
@@ -303,13 +369,14 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 
 - `body` は前後の空白を除いて 1〜1,000 文字（コードポイント）
 - `from` は `menu` か `clear`。盤面がないときは `playId`・`seedCode`・`difficulty`・`maxAssist` を `null` にする
+- デイリーの盤面では、`seedCode` を盤面の名前 `NYORO:d1:hard:<日付>` にする
 - ID ごとに 1 時間で 5 件まで。超えたら `429 too_many`
 - 応答は `{ status: "created" }`。サーバーから感想を読み返す API はない
 - 端末は送った感想を `nyoro-rin.sent-feedback.v1` に `{ version: 1, sent: [{ sentAt, body }] }` として新しい順に 20 件残す
 
 ### 退会
 
-退会は kan-game.app のアカウント画面で行い、ID 基盤が NYORO-RIN の `GameService.deleteAccount` を呼びます。NYORO-RIN はその ID を `deleted_accounts` に記録し、同じトランザクションで完了記録・プロフィール・ランキングの記録・投稿制限の情報・プレイログ・感想・実績を削除します。退会後の ID の Cookie は `410 id_deleted` で断ります。端末のローカル履歴は削除しません。
+退会は kan-game.app のアカウント画面で行い、ID 基盤が NYORO-RIN の `GameService.deleteAccount` を呼びます。NYORO-RIN はその ID を `deleted_accounts` に記録し、同じトランザクションで完了記録・プロフィール・ランキングの記録・投稿制限の情報・プレイログ・感想・実績・デイリーの挑戦を削除します。デイリーの盤面（`daily_puzzles`）は誰の記録でもないので残します。退会後の ID の Cookie は `410 id_deleted` で断ります。端末のローカル履歴は削除しません。
 
 kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）として登録する必要があります。
 
@@ -327,10 +394,14 @@ kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）とし�
 | `play_logs`           | プレイログ。主キーは `(account_id, play_id)`。イベントの JSON と、受け取ったときに数えた手数・ヒントの段階数・最長の間隔など |
 | `feedback`            | 感想と、送ったときの様子                                |
 | `achievements`        | 解除した実績と日時。主キーは `(account_id, achievement_type)`（`0005_achievements.sql`） |
+| `daily_puzzles`       | デイリーの盤面（数字と正解）。主キーは `challenge_date`（`0006_daily.sql`） |
+| `daily_attempts`      | デイリーの挑戦と結果。主キーは `(account_id, challenge_date)`、`(account_id, play_id)` も一意（`0006_daily.sql`） |
 
 `0003_next_puzzle.sql` は、`GET /api/next-puzzle` が難易度と版で公開された初回の記録を引くための索引を足します。
 
 `0004_weekly_ranking.sql` は、`GET /api/weekly-ranking` が今週の同意のあとのクリアを表を引かずに数えるための部分索引を足します。記録は変えません。
+
+`0006_daily.sql` は表を足すだけなので、新しい Worker より先に適用します。
 
 D1 のスキーマ変更はマイグレーションを足して行い、適用済みのマイグレーションを書き換えません。マイグレーションは新しい Worker より先に適用します。
 
@@ -350,3 +421,4 @@ D1 のスキーマ変更はマイグレーションを足して行い、適用�
 12. ID がなくてもローカルでプレイ・保存・ヒントが使える
 13. プレイログの `move` を順に当てると、元に戻す・やり直す・リセットを含めて、プレイヤーが見た盤面に戻る
 14. プレイログと感想は、退会でその ID の分だけ消える。同じ `playId` のプレイログの再送は重複しない
+15. `d1` の盤面は、同じ日付と secret から同じ盤面になる（固定ハッシュ）。デイリーは 1 つの ID で 1 日 1 回だけ始められ、完了の再送は成績を変えない。応答に正解とシードを含めない

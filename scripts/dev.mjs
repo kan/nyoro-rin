@@ -92,6 +92,10 @@ const apiArgs = [
   shellArg(`ID_PUBLIC_KEYS:${publicKeys}`),
   "--var",
   `ALLOWED_ORIGINS:${screenOrigins}`,
+  // The key of the daily seeds (DESIGN.md 25.2). A fixed local-only value:
+  // local daily boards need no secret, and the deployed key is never here.
+  "--var",
+  "DAILY_SEED_SECRET:nyoro-local-daily-secret",
 ];
 
 // The ID platform takes requests from the screen (through the API) and serves

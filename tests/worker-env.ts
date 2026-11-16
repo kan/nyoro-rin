@@ -8,6 +8,9 @@ import worker from "../src/worker/index";
 
 export const ORIGIN = "https://nyoro-dev.kan-game.app";
 
+/** The daily seeds' key in tests; never a deployed one. */
+export const TEST_DAILY_SEED_SECRET = "nyoro-test-daily-secret";
+
 /** The test D1. */
 export const DB: D1Database = env.DB;
 
@@ -21,6 +24,7 @@ export function workerEnv(
     ID_COOKIE_NAME: "__Secure-kgdev_id",
     ID_ISSUER: "localhost",
     ID_PUBLIC_KEYS: "[]",
+    DAILY_SEED_SECRET: TEST_DAILY_SEED_SECRET,
     ASSETS: { fetch: async () => new Response("screen") },
     ...overrides,
   } as unknown as Env;

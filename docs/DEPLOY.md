@@ -30,19 +30,27 @@ NYORO-RIN を kan-game.app で配信する手順です。環境の構成は [`DE
 
    出力の `database_id` を `wrangler.jsonc` の `env.<env>.d1_databases` の `database_id` に書き、`npm run cf-typegen` を実行してコミットする。
 
-2. NYORO-RIN を出す（ビルド → マイグレーション → デプロイを順に行う）
+2. デイリーのシードの鍵（`DAILY_SEED_SECRET`）を置く。環境ごとに別の、推測できない値にし、どこにも書き残さない（変えると、まだ作っていない日の盤面が変わる。作った日の盤面は D1 に固定されているので変わらない）
+
+   ```sh
+   openssl rand -hex 32 | npx wrangler secret put DAILY_SEED_SECRET --env <env>
+   ```
+
+   `wrangler.jsonc` の `secrets.required` に入っているので、置かないとデプロイが止まります。
+
+3. NYORO-RIN を出す（ビルド → マイグレーション → デプロイを順に行う）
 
    ```sh
    npm run deploy:<env>
    ```
 
-3. kan/game に NYORO-RIN を登録して出し直す。**順番を守る: NYORO-RIN の Worker が `GameService` 付きで出てから。** 逆にすると、kan/game のデプロイが binding 先の不在で失敗するか、退会が毎回 `503 deletion_incomplete` になります。kan/game の `wrangler.jsonc` の `env.<env>` に次を足し、`npm run cf-typegen` のあと kan/game の `npm run deploy:<env>` を実行する。
+4. kan/game に NYORO-RIN を登録して出し直す。**順番を守る: NYORO-RIN の Worker が `GameService` 付きで出てから。** 逆にすると、kan/game のデプロイが binding 先の不在で失敗するか、退会が毎回 `503 deletion_incomplete` になります。kan/game の `wrangler.jsonc` の `env.<env>` に次を足し、`npm run cf-typegen` のあと kan/game の `npm run deploy:<env>` を実行する。
 
    - `ALLOWED_ORIGINS` に `https://nyoro-dev.kan-game.app`（本番は `https://nyoro.kan-game.app`）
    - `services` に `{ "binding": "GAME_NYORO", "service": "nyoro-dev", "entrypoint": "GameService" }`（本番は `"service": "nyoro"`）
    - `GAMES` に `GAME_NYORO`
 
-4. 確かめる（下の「公開後の確認」）
+5. 確かめる（下の「公開後の確認」）
 
 ### 本番だけで行うこと
 
@@ -61,6 +69,14 @@ npm run deploy:<env>
 
 マイグレーションを足したときも同じコマンドです（新しい Worker より先に適用されます）。
 
+### デイリーを入れるとき（kan/nyoro-rin#7、既存の環境）
+
+既に出ている環境では、デイリーの版を出す前に、環境ごとに次を行います。
+
+1. `DAILY_SEED_SECRET` を置く（上の「初回」の 2）。置く前に Worker を出すとデプロイが止まります
+2. `npm run deploy:<env>` で `0006_daily.sql` を当てて出す。`0003`〜`0005` が未適用なら一緒に当たります
+3. 定期実行に `0 14 * * *`（日本時間 23:00、翌日の盤面を作る）が加わったことを、Cloudflare のダッシュボードの Triggers で確かめる
+
 ## 公開後の確認
 
 1. `https://nyoro-dev.kan-game.app` を開き、READY から問題を解ける
@@ -69,7 +85,8 @@ npm run deploy:<env>
 4. メニューの「アカウント」で名前を決めると、次に解いた問題のランキングに載る
 5. メニューの「感想を送る」から送れ、`npm run stats -- feedback --env dev` に出る
 6. 次の問題へ移ると `POST /api/play-logs` が `201` を返し、`npm run stats -- summary --env dev` に出る
-7. ポータル（`https://dev.kan-game.app/account`）でテスト用の ID を退会すると、その ID の `completed_plays`・`profiles`・`play_logs`・`feedback` が消える
+7. ポータル（`https://dev.kan-game.app/account`）でテスト用の ID を退会すると、その ID の `completed_plays`・`profiles`・`play_logs`・`feedback`・`daily_attempts` が消える
+8. 名前を決めた 2 つの ID で、盤面の下のカレンダーのボタンからデイリーを開くと同じ盤面が出る。OK で `POST /api/daily/start` が `201` を返し、もう一方の端末や再読み込みでは同じ ID で始め直せない。クリアすると `POST /api/daily/complete` が `201` を返し、2 人がその日のランキングに載る。もう一度ボタンを押すとランキングが開く
 
 確認の 5〜7 はリモートの D1 を読むので、利用者の承認を得てから行います。
 
