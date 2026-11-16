@@ -305,6 +305,15 @@ Solver や Generator の不具合を修正する場合は、可能な限りそ�
 
 ドメインレベルで検証できる内容について、アニメーション時間などの UI 実装詳細へ依存するテストは避けてください。
 
+テストは `vitest.config.ts` の 2 つの project で動きます。
+
+- `node`: Core、Generator、画面の補助、scripts のテスト
+- `worker`: Worker のテスト（`tests/worker-*.test.ts`）。`@cloudflare/vitest-plugin` で Workers のランタイム（workerd）の上で動かします。旧名の `@cloudflare/vitest-pool-workers` を入れないでください
+  - Worker は `tests/wrangler.jsonc`（本物の entry と、メモリ上の D1）で動きます。マイグレーションは `tests/apply-migrations.ts` がテストファイルごとに当てます
+  - HTTP の API は `tests/worker-env.ts` の `call` で、env の一部（`ID` を `fake-id-platform` にするなど）を `workerEnv` で差し替えて呼びます
+  - GameService は `cloudflare:workers` の `exports.GameService` から、本物の entrypoint を通して呼びます
+  - テスト用の binding を足したら `tests/env.d.ts` に型を足してください
+
 ## 入力と操作
 
 入力仕様は `docs/DESIGN.md` 第 7 章を参照してください。

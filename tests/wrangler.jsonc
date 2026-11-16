@@ -1,8 +1,10 @@
 {
-  // The D1 the Worker tests run against: in memory (getPlatformProxy with
-  // persist: false), never a remote database.
+  // The Worker the Worker tests run (vitest.config.ts): the real entry, with
+  // an in-memory D1, never a remote database. The tests pass the other
+  // bindings themselves (tests/worker-env.ts).
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "nyoro-rin-test",
+  "main": "../src/worker/main.ts",
   "compatibility_date": "2026-09-15",
   "d1_databases": [
     {

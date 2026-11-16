@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FeedbackUpload } from "../src/core/feedback";
 import type { PlayLogUpload } from "../src/core/play-log";
 import { deleteAccount } from "../src/worker/accounts";
@@ -7,29 +7,17 @@ import {
   createTestIdIssuer,
   type TestIdIssuer,
 } from "./kan-game/test-id-cookie";
-import {
-  call,
-  post,
-  startPlatform,
-  workerEnv,
-  type Platform,
-} from "./worker-env";
+import { DB, call, post, workerEnv } from "./worker-env";
 
-let platform: Platform;
 let issuer: TestIdIssuer;
 let env: Env;
 
 beforeAll(async () => {
-  platform = await startPlatform();
   issuer = await createTestIdIssuer();
 });
 
-afterAll(async () => {
-  await platform?.dispose();
-});
-
 beforeEach(() => {
-  env = workerEnv(platform, {
+  env = workerEnv({
     ID: createFakeIdPlatform().rpc,
     ID_COOKIE_NAME: issuer.cookieName,
     ID_ISSUER: issuer.issuer,
@@ -97,7 +85,7 @@ describe("play logs", () => {
     expect((await call(env, "/api/play-logs", post(log, headers))).status).toBe(
       200,
     );
-    const row = await platform.env.DB.prepare(
+    const row = await DB.prepare(
       "SELECT moves, undos, hint_steps, longest_gap_ms, events FROM play_logs WHERE account_id = ?",
     )
       .bind(id)
@@ -155,7 +143,7 @@ describe("feedback", () => {
     const over = await call(env, "/api/feedback", post(feedback(), headers));
     expect(over.status).toBe(429);
     expect(await over.json()).toEqual({ error: "too_many" });
-    const row = await platform.env.DB.prepare(
+    const row = await DB.prepare(
       "SELECT body, source, cleared, difficulty FROM feedback WHERE account_id = ? LIMIT 1",
     )
       .bind(id)
@@ -204,9 +192,9 @@ describe("withdrawal", () => {
     const { id, headers } = await newAccount();
     await call(env, "/api/play-logs", post(playLog(), headers));
     await call(env, "/api/feedback", post(feedback(), headers));
-    await deleteAccount(platform.env.DB, id);
+    await deleteAccount(DB, id);
     for (const table of ["play_logs", "feedback"]) {
-      const row = await platform.env.DB.prepare(
+      const row = await DB.prepare(
         `SELECT COUNT(*) AS n FROM ${table} WHERE account_id = ?`,
       )
         .bind(id)

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { generatePuzzle } from "../src/core/generator";
 import type { CompletedPlayUpload } from "../src/core/online-play";
 import { puzzleId } from "../src/core/puzzle-identity";
@@ -16,16 +16,8 @@ import {
   createTestIdIssuer,
   type TestIdIssuer,
 } from "./kan-game/test-id-cookie";
-import {
-  ORIGIN,
-  call,
-  post,
-  startPlatform,
-  workerEnv,
-  type Platform,
-} from "./worker-env";
+import { ORIGIN, DB, call, post, workerEnv } from "./worker-env";
 
-let platform: Platform;
 let issuer: TestIdIssuer;
 let ids: FakeIdPlatform;
 let env: Env;
@@ -40,18 +32,13 @@ const seedCode = encodeSeedCode({
 let boardId: string;
 
 beforeAll(async () => {
-  platform = await startPlatform();
   issuer = await createTestIdIssuer();
   boardId = await puzzleId(generated);
 });
 
-afterAll(async () => {
-  await platform?.dispose();
-});
-
 beforeEach(() => {
   ids = createFakeIdPlatform();
-  env = workerEnv(platform, {
+  env = workerEnv({
     ID: ids.rpc,
     ID_COOKIE_NAME: issuer.cookieName,
     ID_ISSUER: issuer.issuer,
@@ -325,7 +312,7 @@ describe("withdrawal", () => {
     await sendPlay(leaving.headers, upload());
     await sendPlay(staying.headers, upload());
 
-    await deleteAccount(platform.env.DB, leaving.id);
+    await deleteAccount(DB, leaving.id);
     expect(
       (await call(env, "/api/plays", { headers: leaving.headers })).status,
     ).toBe(410);
@@ -341,7 +328,7 @@ describe("withdrawal", () => {
       "first_ranked_plays",
       "rate_limits",
     ]) {
-      const row = await platform.env.DB.prepare(
+      const row = await DB.prepare(
         `SELECT COUNT(*) AS n FROM ${table} WHERE account_id = ?`,
       )
         .bind(leaving.id)
@@ -356,7 +343,7 @@ describe("withdrawal", () => {
       // The record of the withdrawal itself; auth.ts refuses the cookie by it.
       deleted_accounts: "records that the ID was deleted",
     };
-    const { results } = await platform.env.DB.prepare(
+    const { results } = await DB.prepare(
       `SELECT m.name AS name FROM sqlite_master AS m
        WHERE m.type = 'table'
          AND EXISTS (
@@ -376,16 +363,14 @@ describe("withdrawal", () => {
 
   it("sweeps a record written while the ID was being deleted", async () => {
     const { id } = await newAccount();
-    await deleteAccount(platform.env.DB, id);
-    await platform.env.DB.prepare(
+    await deleteAccount(DB, id);
+    await DB.prepare(
       "INSERT INTO profiles (account_id, display_name) VALUES (?, ?)",
     )
       .bind(id, `late-${id}`)
       .run();
-    await sweepDeletedAccounts(platform.env.DB);
-    const row = await platform.env.DB.prepare(
-      "SELECT 1 FROM profiles WHERE account_id = ?",
-    )
+    await sweepDeletedAccounts(DB);
+    const row = await DB.prepare("SELECT 1 FROM profiles WHERE account_id = ?")
       .bind(id)
       .first();
     expect(row).toBeNull();
@@ -405,7 +390,7 @@ describe("routing", () => {
 
   it("passes /api/id/* to the ID platform unchanged", async () => {
     let seen: Request | undefined;
-    const proxied = workerEnv(platform, {
+    const proxied = workerEnv({
       ID: {
         fetch: async (request: Request) => {
           seen = request;
