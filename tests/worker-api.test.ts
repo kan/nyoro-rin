@@ -3,7 +3,11 @@ import { generatePuzzle } from "../src/core/generator";
 import type { CompletedPlayUpload } from "../src/core/online-play";
 import { puzzleId } from "../src/core/puzzle-identity";
 import { encodeSeedCode } from "../src/core/seed-code";
-import { deleteAccount, sweepDeletedAccounts } from "../src/worker/accounts";
+import {
+  ACCOUNT_TABLES,
+  deleteAccount,
+  sweepDeletedAccounts,
+} from "../src/worker/accounts";
 import {
   createFakeIdPlatform,
   type FakeIdPlatform,
@@ -343,6 +347,30 @@ describe("withdrawal", () => {
         .bind(leaving.id)
         .first<{ n: number }>();
       expect(row?.n, table).toBe(0);
+    }
+  });
+
+  it("deletes from every table that holds an account_id", async () => {
+    // Tables with account_id that withdrawal must keep, and why.
+    const kept: Record<string, string> = {
+      // The record of the withdrawal itself; auth.ts refuses the cookie by it.
+      deleted_accounts: "records that the ID was deleted",
+    };
+    const { results } = await platform.env.DB.prepare(
+      `SELECT m.name AS name FROM sqlite_master AS m
+       WHERE m.type = 'table'
+         AND EXISTS (
+           SELECT 1 FROM pragma_table_info(m.name) WHERE name = 'account_id'
+         )
+       ORDER BY m.name`,
+    ).all<{ name: string }>();
+    const withAccount = results
+      .map((row) => row.name)
+      .filter((name) => !(name in kept));
+    expect(withAccount).toEqual([...ACCOUNT_TABLES].sort());
+    // Every exception still exists, so the list does not go stale.
+    for (const name of Object.keys(kept)) {
+      expect(results.map((row) => row.name)).toContain(name);
     }
   });
 
