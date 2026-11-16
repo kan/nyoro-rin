@@ -135,8 +135,19 @@ TAKO-SEN と違い、ミス数はありません。
 | `GET /api/plays`                  | ID   | 本人の完了記録（新しい順に最大 500 件）      |
 | `POST /api/plays`                 | ID   | 完了記録を 1 件登録する                      |
 | `GET /api/leaderboards/:puzzleId` | 不要 | 問題別ランキング                             |
+| `GET /api/next-puzzle`            | ID   | 次の問題の候補（DESIGN.md 13.8）             |
 | `POST /api/play-logs`             | ID   | 試行 1 回分のプレイログを登録する            |
 | `POST /api/feedback`              | ID   | 感想を 1 件登録する                          |
+
+### `GET /api/next-puzzle?difficulty=easy|normal|hard`
+
+ID を持つ本人だけが使います。本人の次の問題の候補を返します（DESIGN.md 13.8）。
+
+- 候補は、その難易度で、今の版（`n1`）の盤面のうち、公開に同意したほかのプレイヤーの公開された初回の記録（`is_public = 1`）があり、本人の完了記録に同じ問題 ID がないもの
+- 応答は `{ candidates: [{ puzzleId, seedCode, players }] }`。`players` はその盤面のランキングに載っている人数。人数の多い順（同じ人数は無作為）に最大 30 件
+- アカウント ID、ほかのプレイヤーの名前と成績、正解は返さない
+- 難易度が無いか不正なら `400 invalid_difficulty`
+- 画面は `seedCode` から盤面を作り直し、問題 ID が `puzzleId` と一致したときだけ使う
 
 ### `POST /api/plays`
 
@@ -284,6 +295,8 @@ kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）とし�
 | `rate_limits`         | 投稿制限                                                |
 | `play_logs`           | プレイログ。主キーは `(account_id, play_id)`。イベントの JSON と、受け取ったときに数えた手数・ヒントの段階数・最長の間隔など |
 | `feedback`            | 感想と、送ったときの様子                                |
+
+`0003_next_puzzle.sql` は、`GET /api/next-puzzle` が難易度と版で公開された初回の記録を引くための索引を足します。
 
 D1 のスキーマ変更はマイグレーションを足して行い、適用済みのマイグレーションを書き換えません。マイグレーションは新しい Worker より先に適用します。
 

@@ -73,9 +73,15 @@ import {
   lineEdges,
   loopVertices,
 } from "../core/rules";
+import { pickRankedPuzzle } from "../core/next-puzzle";
+import { puzzleId } from "../core/puzzle-identity";
 import { type SeedCode, encodeSeedCode } from "../core/seed-code";
 import { type Settings } from "../core/settings";
-import { PuzzleGenerator, randomSeed } from "./puzzle-generation";
+import {
+  PuzzleGenerator,
+  SupersededError,
+  randomSeed,
+} from "./puzzle-generation";
 import { browserStorage } from "./browser-storage";
 
 /**
@@ -100,6 +106,14 @@ function createId(): string {
   ]
     .map((part) => part.join(""))
     .join("-");
+}
+
+function seedCodeOf(puzzle: Puzzle): string {
+  return encodeSeedCode({
+    version: puzzle.generatorVersion,
+    difficulty: puzzle.difficulty,
+    seed: puzzle.seed,
+  });
 }
 
 export interface PlayOptions {
@@ -137,6 +151,12 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   let recordedPlayId: string | undefined;
   /** Only the latest request may replace the board. */
   let latestRequest = 0;
+  /**
+   * Boards shown in this visit, which a ranked candidate must not repeat;
+   * boards of earlier visits are in the history once played.
+   */
+  const shownSeedCodes = new Set<string>();
+  const shownPuzzleIds = new Set<string>();
 
   const geometry = computed(() => boardGeometry(puzzle.value?.size ?? 7));
 
@@ -203,13 +223,7 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
   );
 
   const seedCode = computed(() =>
-    puzzle.value
-      ? encodeSeedCode({
-          version: puzzle.value.generatorVersion,
-          difficulty: puzzle.value.difficulty,
-          seed: puzzle.value.seed,
-        })
-      : "",
+    puzzle.value ? seedCodeOf(puzzle.value) : "",
   );
 
   /** Whether any line or × is on the board, which leaving would lose. */
@@ -403,19 +417,22 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     return true;
   }
 
-  async function load(code: SeedCode): Promise<boolean> {
+  /**
+   * Replaces the board with the one `make` produces; `current` tells it
+   * whether a newer request has replaced this one.
+   */
+  async function begin(
+    make: (current: () => boolean) => Promise<Puzzle>,
+  ): Promise<boolean> {
     latestRequest += 1;
     const request = latestRequest;
     pause();
     loading.value = true;
     failure.value = undefined;
     try {
-      const next = await generator.generate(
-        code.seed,
-        code.difficulty,
-        code.version,
-      );
+      const next = await make(() => request === latestRequest);
       if (request !== latestRequest) return false;
+      shownSeedCodes.add(seedCodeOf(next));
       stroke = undefined;
       // The board being left unsolved: its log goes out as abandoned.
       if (!solved.value) endLog("abandoned");
@@ -434,11 +451,49 @@ export function usePlay(settings: Ref<Settings>, options: PlayOptions = {}) {
     }
   }
 
-  function startNew(difficulty: Difficulty): Promise<boolean> {
-    return load({
-      version: CURRENT_GENERATOR_VERSION,
-      difficulty,
-      seed: randomSeed(),
+  function generate(code: SeedCode): Promise<Puzzle> {
+    return generator.generate(code.seed, code.difficulty, code.version);
+  }
+
+  function load(code: SeedCode): Promise<boolean> {
+    return begin(() => generate(code));
+  }
+
+  /**
+   * A new puzzle at the difficulty. With `candidates` (the device has an
+   * ID), a ranked board other players solved comes first (DESIGN.md 13.8);
+   * without one, or when none is usable, the device makes a new board.
+   */
+  function startNew(
+    difficulty: Difficulty,
+    candidates?: (difficulty: Difficulty) => Promise<unknown>,
+  ): Promise<boolean> {
+    return begin(async (current) => {
+      const ranked =
+        candidates &&
+        (await pickRankedPuzzle(
+          difficulty,
+          {
+            puzzleIds: shownPuzzleIds,
+            seedCodes: new Set([
+              ...shownSeedCodes,
+              ...history.value.plays.map((play) => play.seedCode),
+            ]),
+          },
+          { fetchCandidates: candidates, generate, identify: puzzleId },
+          { next: Math.random },
+        ));
+      if (ranked) {
+        shownPuzzleIds.add(ranked.puzzleId);
+        return ranked.puzzle;
+      }
+      // A newer request took over while the candidates were tried.
+      if (!current()) throw new SupersededError();
+      return generate({
+        version: CURRENT_GENERATOR_VERSION,
+        difficulty,
+        seed: randomSeed(),
+      });
     });
   }
 

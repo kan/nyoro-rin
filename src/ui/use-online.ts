@@ -28,7 +28,7 @@ import {
   loadSentFeedback,
 } from "../core/feedback";
 import type { LeaderboardEntry } from "../core/leaderboard";
-import type { Puzzle } from "../core/model";
+import type { Difficulty, Puzzle } from "../core/model";
 import {
   type CompletedPlayUpload,
   createCompletedPlayUpload,
@@ -42,6 +42,11 @@ import { browserStorage } from "./browser-storage";
 
 /** How often the queues are tried again while anything waits. */
 const RETRY_MS = 30_000;
+/**
+ * How long the next puzzle waits for ranked candidates before the device
+ * makes a board of its own: the player is waiting on READY meanwhile.
+ */
+const CANDIDATES_TIMEOUT_MS = 3000;
 
 /** The ranking of the board just cleared, as the clear card shows it. */
 export type ClearRanking =
@@ -235,6 +240,34 @@ export function useOnline() {
     return entries ? { status: "ready", entries } : { status: "offline" };
   }
 
+  // --- the next puzzle --------------------------------------------------------
+
+  /**
+   * The source of ranked boards for the next puzzle (DESIGN.md 13.8), or
+   * undefined without an ID: the device then makes the board itself.
+   */
+  function nextPuzzleCandidates():
+    ((difficulty: Difficulty) => Promise<unknown>) | undefined {
+    if (!id.value) return undefined;
+    return async (difficulty) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () => controller.abort(),
+        CANDIDATES_TIMEOUT_MS,
+      );
+      try {
+        const response = await apiFetch(
+          `/api/next-puzzle?difficulty=${encodeURIComponent(difficulty)}`,
+          { signal: controller.signal },
+        );
+        if (!response.ok) throw new Error("No candidates.");
+        return await response.json();
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+  }
+
   // --- the player's name --------------------------------------------------------
 
   async function refreshProfile(account: string): Promise<void> {
@@ -355,6 +388,7 @@ export function useOnline() {
     recordPlayLog,
     forgetClear,
     fetchLeaderboard,
+    nextPuzzleCandidates,
     registerProfile,
     sendFeedback,
   };

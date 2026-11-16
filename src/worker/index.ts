@@ -11,6 +11,7 @@ import {
   parseCompletedPlayUpload,
   verifyCompletedPlayUpload,
 } from "../core/online-play";
+import { isDifficulty } from "../core/model";
 import { parsePlayLogUpload } from "../core/play-log";
 import { isPuzzleId } from "../core/puzzle-identity";
 import { sweepDeletedAccounts } from "./accounts";
@@ -26,6 +27,7 @@ import {
 import { savePlayLog } from "./play-logs";
 import { idPlatform } from "./id-platform";
 import { listLeaderboard } from "./leaderboard";
+import { listNextPuzzleCandidates } from "./next-puzzle";
 import { getAccountProfile, registerAccountProfile } from "./profile";
 
 const MAX_BODY_BYTES = 4096;
@@ -46,12 +48,12 @@ type Handler = (
   body: unknown,
 ) => Promise<Response>;
 
-/** A route that needs the ID cookie: its GET, if any, and its POST. */
+/** A route that needs the ID cookie: its GET, its POST, or both. */
 interface AccountRoute {
-  readonly get?: (env: Env, accountId: string) => Promise<Response>;
-  readonly post: Handler;
+  readonly get?: (env: Env, accountId: string, url: URL) => Promise<Response>;
+  readonly post?: Handler;
   /** The largest body the POST takes, in bytes. */
-  readonly limit: number;
+  readonly limit?: number;
 }
 
 const ACCOUNT_ROUTES: Readonly<Record<string, AccountRoute>> = {
@@ -67,6 +69,7 @@ const ACCOUNT_ROUTES: Readonly<Record<string, AccountRoute>> = {
     post: postPlay,
     limit: MAX_BODY_BYTES,
   },
+  "/api/next-puzzle": { get: getNextPuzzle },
   "/api/play-logs": { post: postPlayLog, limit: MAX_PLAY_LOG_BYTES },
   "/api/feedback": { post: postFeedback, limit: MAX_FEEDBACK_BYTES },
 };
@@ -94,7 +97,10 @@ export default {
         return json({ error: "not_found" }, 404);
       return env.ASSETS.fetch(request);
     }
-    const methods = route.get ? ["GET", "POST"] : ["POST"];
+    const methods = [
+      ...(route.get ? ["GET"] : []),
+      ...(route.post ? ["POST"] : []),
+    ];
     if (!methods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
         Allow: methods.join(", "),
@@ -123,9 +129,11 @@ export default {
       if (auth.status === "deleted") return json({ error: "id_deleted" }, 410);
       const { accountId } = auth;
 
-      if (request.method === "GET") return await route.get!(env, accountId);
-      const body = await readJsonBody(request, route.limit);
-      return body.error ?? (await route.post(env, accountId, body.value));
+      if (request.method === "GET") {
+        return await route.get!(env, accountId, new URL(request.url));
+      }
+      const body = await readJsonBody(request, route.limit ?? MAX_BODY_BYTES);
+      return body.error ?? (await route.post!(env, accountId, body.value));
     } catch (error) {
       logError("api_failure", error);
       return json({ error: "service_unavailable" }, 503);
@@ -219,6 +227,24 @@ async function postProfile(
     );
     return json({ error: "name_taken" }, 409);
   }
+}
+
+/**
+ * GET /api/next-puzzle?difficulty=...: ranked boards the account has not
+ * completed, for its next puzzle (DESIGN.md 13.8).
+ */
+async function getNextPuzzle(
+  env: Env,
+  accountId: string,
+  url: URL,
+): Promise<Response> {
+  const difficulty = url.searchParams.get("difficulty");
+  if (!isDifficulty(difficulty)) {
+    return json({ error: "invalid_difficulty" }, 400);
+  }
+  return json({
+    candidates: await listNextPuzzleCandidates(env.DB, accountId, difficulty),
+  });
 }
 
 /** POST /api/plays: one verified clear, answered with the puzzle's ranking. */

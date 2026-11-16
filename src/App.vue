@@ -293,7 +293,9 @@ function onConfirmClosed(): void {
 
 /** A new puzzle at the device's choice, drawn anew each time for random. */
 function next(): void {
-  requestStart(() => play.startNew(difficulty.next()));
+  requestStart(() =>
+    play.startNew(difficulty.next(), online.nextPuzzleCandidates()),
+  );
 }
 
 /**
@@ -303,7 +305,7 @@ function next(): void {
 function requestNew(choice: DifficultyChoice): void {
   requestStart(() => {
     difficulty.choose(choice);
-    return play.startNew(difficulty.next());
+    return play.startNew(difficulty.next(), online.nextPuzzleCandidates());
   });
 }
 
