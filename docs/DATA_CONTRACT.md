@@ -136,6 +136,7 @@ TAKO-SEN と違い、ミス数はありません。
 | `POST /api/plays`                 | ID   | 完了記録を 1 件登録する                      |
 | `GET /api/leaderboards/:puzzleId` | 不要 | 問題別ランキング                             |
 | `GET /api/next-puzzle`            | ID   | 次の問題の候補（DESIGN.md 13.8）             |
+| `GET /api/weekly-ranking`         | 不要 | 週間ランキング（DESIGN.md 20.3）             |
 | `POST /api/play-logs`             | ID   | 試行 1 回分のプレイログを登録する            |
 | `POST /api/feedback`              | ID   | 感想を 1 件登録する                          |
 
@@ -197,6 +198,16 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 - 初回は、アカウント・問題 ID ごとの最初のサーバー登録とする。登録と初回の選択を同じトランザクションで行い、同時の送信でも 1 件だけを選ぶ。再挑戦は個人の履歴には残すが、初回を置き換えない
 - 順位は [`DESIGN.md`](./DESIGN.md) 16.2 のスコアの降順、同点ならクリア時間・ヒント使用回数の昇順。すべて同じなら同順位（1、1、3）
 - 応答の各行は `{ rank, displayName, elapsedSeconds, hintsUsed, maxHintStage, maxAssist, isSelf }` だけとする。アカウント ID・ローカル ID・`playId`・日時・正解は含めない。`isSelf` は Cookie があるときだけ真になりうる
+
+### 週間ランキング
+
+- `GET /api/weekly-ranking?difficulty=easy|normal|hard&metric=clears|score` は未認証でも使える。条件が無い・不正なら `400 invalid_query`、GET 以外は `405`、D1 の障害は `503`
+- 応答は `{ start, end, entries }`。`start` と `end` は、日本時間の今週（月曜 0 時〜翌月曜 0 時）の epoch ミリ秒（`end` を含まない）。週の計算は `src/core/weekly-ranking.ts` の `rankingWeekOf`
+- 各行は `{ rank, displayName, clears, averageScore, maxAssist, isSelf }` だけとし、最大 100 人。アカウント ID・シード・問題 ID・個別の記録は返さない。`averageScore` は丸める前の平均。`isSelf` は Cookie があるときだけ真になりうる
+- 対象は `completed_plays` のうち、`ranking_eligible = 1`（同意のあとのクリア）、通常の盤面の版、`completed_at` が今週の範囲内かつ現在時刻まで、の記録。プロフィールの同意が今も有効なプレイヤーだけを載せる。問題別の初回（`is_public`）は使わないので、過去の週にクリアした問題も今週のクリアで数える
+- アカウント・問題 ID ごとに、今週の最も早い `completed_at` の記録（同時刻なら `play_id` の順）を 1 件だけ採り、その記録の難易度で数える
+- `clears` は採った記録の数、`averageScore` は採った記録のスコア（問題別ランキングと同じ式、`src/worker/leaderboard.ts` の `SCORE_SQL`）の平均、`maxAssist` は採った記録の `max_assist` の最大
+- `metric=clears` は `clears` の降順、`metric=score` は `averageScore` の降順で、`score` は `clears` が 5 以上のプレイヤーだけを並べる。同じ値は同順位（1、1、3）で、名前の順に並べる
 
 ### プレイログ
 
@@ -297,6 +308,8 @@ kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）とし�
 | `feedback`            | 感想と、送ったときの様子                                |
 
 `0003_next_puzzle.sql` は、`GET /api/next-puzzle` が難易度と版で公開された初回の記録を引くための索引を足します。
+
+`0004_weekly_ranking.sql` は、`GET /api/weekly-ranking` が今週の同意のあとのクリアを表を引かずに数えるための部分索引を足します。記録は変えません。
 
 D1 のスキーマ変更はマイグレーションを足して行い、適用済みのマイグレーションを書き換えません。マイグレーションは新しい Worker より先に適用します。
 

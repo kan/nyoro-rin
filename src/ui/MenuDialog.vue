@@ -19,6 +19,7 @@ import InstallSteps from "./InstallSteps.vue";
 import LeaderboardList from "./LeaderboardList.vue";
 import RecordsPanel from "./RecordsPanel.vue";
 import UiIcon from "./UiIcon.vue";
+import WeeklyRankingPanel from "./WeeklyRankingPanel.vue";
 import { installOffer, promptInstall } from "./install";
 import { DIFFICULTY_CHOICE_LABELS } from "./labels";
 import { useModalDialog } from "./modal-dialog";
@@ -29,6 +30,7 @@ export type MenuPage =
   | "new"
   | "records"
   | "ranking"
+  | "weekly"
   | "account"
   | "feedback"
   | "seed"
@@ -42,6 +44,7 @@ const PAGE_TITLES: Readonly<Record<MenuPage, string>> = {
   new: "新しい問題",
   records: "成績",
   ranking: "この問題のランキング",
+  weekly: "週間ランキング",
   account: "アカウント",
   feedback: "感想を送る",
   seed: "シード",
@@ -213,6 +216,9 @@ async function copySeed(): Promise<void> {
         <button type="button" @click="page = 'ranking'">
           <UiIcon name="records" />この問題のランキング
         </button>
+        <button type="button" @click="page = 'weekly'">
+          <UiIcon name="records" />週間ランキング
+        </button>
         <button type="button" @click="page = 'account'">
           <UiIcon name="settings" />アカウント
         </button>
@@ -274,6 +280,18 @@ async function copySeed(): Promise<void> {
           ランキングを取得できません。通信状態を確認して、開き直してください。
         </p>
         <LeaderboardList v-else :entries="ranking" />
+        <button
+          v-if="!online.profile.value"
+          type="button"
+          class="text-button"
+          @click="page = 'account'"
+        >
+          名前を決めてランキングに参加する
+        </button>
+      </section>
+
+      <section v-else-if="page === 'weekly'" class="menu-page">
+        <WeeklyRankingPanel :online="online" :difficulty="difficulty" />
         <button
           v-if="!online.profile.value"
           type="button"

@@ -27,6 +27,12 @@ const GENERATORS: Readonly<Record<string, VersionedGenerator>> = {
   [N1]: { generate: generateN1, rate: rateN1 },
 };
 
+/**
+ * The versions of ordinary puzzles, oldest first. The weekly ranking counts
+ * clears of all of them (DATA_CONTRACT.md 「週間ランキング」).
+ */
+export const GENERATOR_VERSIONS: readonly string[] = Object.keys(GENERATORS);
+
 export function isSupportedGeneratorVersion(version: string): boolean {
   return Object.hasOwn(GENERATORS, version);
 }

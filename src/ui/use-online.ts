@@ -28,6 +28,7 @@ import {
   loadSentFeedback,
 } from "../core/feedback";
 import type { LeaderboardEntry } from "../core/leaderboard";
+import type { WeeklyMetric, WeeklyRanking } from "../core/weekly-ranking";
 import type { Difficulty, Puzzle } from "../core/model";
 import {
   type CompletedPlayUpload,
@@ -235,6 +236,26 @@ export function useOnline() {
     }
   }
 
+  /** This week's players (DESIGN.md 20.3); undefined when it failed. */
+  async function fetchWeeklyRanking(
+    difficulty: Difficulty,
+    metric: WeeklyMetric,
+  ): Promise<WeeklyRanking | undefined> {
+    try {
+      const query = new URLSearchParams({ difficulty, metric });
+      const response = await apiFetch(`/api/weekly-ranking?${query}`);
+      if (!response.ok) return undefined;
+      const body = (await response.json()) as Partial<WeeklyRanking>;
+      return Array.isArray(body.entries) &&
+        typeof body.start === "number" &&
+        typeof body.end === "number"
+        ? { start: body.start, end: body.end, entries: body.entries }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   async function fetchClearRanking(puzzleId: string): Promise<ClearRanking> {
     const entries = await fetchLeaderboard(puzzleId);
     return entries ? { status: "ready", entries } : { status: "offline" };
@@ -388,6 +409,7 @@ export function useOnline() {
     recordPlayLog,
     forgetClear,
     fetchLeaderboard,
+    fetchWeeklyRanking,
     nextPuzzleCandidates,
     registerProfile,
     sendFeedback,

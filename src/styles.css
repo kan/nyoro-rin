@@ -811,6 +811,10 @@ dialog::backdrop {
   margin-bottom: 12px;
 }
 
+.tabs.two {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .tabs button[aria-selected="true"] {
   background: var(--color-moss);
   border-color: var(--color-moss);

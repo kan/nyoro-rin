@@ -14,6 +14,7 @@ import {
 import { isDifficulty } from "../core/model";
 import { parsePlayLogUpload } from "../core/play-log";
 import { isPuzzleId } from "../core/puzzle-identity";
+import { isWeeklyMetric } from "../core/weekly-ranking";
 import { sweepDeletedAccounts } from "./accounts";
 import { authenticateAccount } from "./auth";
 import { saveFeedback } from "./feedback";
@@ -28,6 +29,7 @@ import { savePlayLog } from "./play-logs";
 import { idPlatform } from "./id-platform";
 import { listLeaderboard } from "./leaderboard";
 import { listNextPuzzleCandidates } from "./next-puzzle";
+import { listWeeklyRanking } from "./weekly-ranking";
 import { getAccountProfile, registerAccountProfile } from "./profile";
 
 const MAX_BODY_BYTES = 4096;
@@ -90,6 +92,9 @@ export default {
     }
     if (pathname.startsWith("/api/leaderboards/")) {
       return leaderboard(request, env, pathname);
+    }
+    if (pathname === "/api/weekly-ranking") {
+      return weeklyRanking(request, env);
     }
     const route = ACCOUNT_ROUTES[pathname];
     if (!route) {
@@ -180,6 +185,33 @@ async function leaderboard(
     return json({ entries: await listLeaderboard(env.DB, id, viewer) });
   } catch (error) {
     logError("leaderboard_read_failure", error);
+    return json({ error: "service_unavailable" }, 503);
+  }
+}
+
+/**
+ * GET /api/weekly-ranking?difficulty=easy|normal|hard&metric=clears|score:
+ * this week's players, readable without an ID. A cookie only marks the
+ * viewer's own row.
+ */
+async function weeklyRanking(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") {
+    return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
+  }
+  const params = new URL(request.url).searchParams;
+  const difficulty = params.get("difficulty");
+  const metric = params.get("metric");
+  if (!isDifficulty(difficulty) || !isWeeklyMetric(metric)) {
+    return json({ error: "invalid_query" }, 400);
+  }
+  try {
+    const auth = request.headers.has("Cookie")
+      ? await authenticateAccount(request, env)
+      : undefined;
+    const viewer = auth?.status === "ok" ? auth.accountId : undefined;
+    return json(await listWeeklyRanking(env.DB, difficulty, metric, viewer));
+  } catch (error) {
+    logError("weekly_ranking_read_failure", error);
     return json({ error: "service_unavailable" }, 503);
   }
 }
