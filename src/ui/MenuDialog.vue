@@ -15,6 +15,7 @@ import { type AssistLevel, type Settings } from "../core/settings";
 import AboutPanel from "./AboutPanel.vue";
 import AccountPanel from "./AccountPanel.vue";
 import AchievementsPanel from "./AchievementsPanel.vue";
+import DailyNoticeSetting from "./DailyNoticeSetting.vue";
 import DailyRankingPanel from "./DailyRankingPanel.vue";
 import FeedbackPanel from "./FeedbackPanel.vue";
 import InstallSteps from "./InstallSteps.vue";
@@ -419,6 +420,7 @@ async function copySeed(): Promise<void> {
             <small>長押しで拡大したときに短く振動する（対応端末のみ）</small>
           </span>
         </label>
+        <DailyNoticeSetting @install="page = 'install'" />
       </section>
 
       <section v-else-if="page === 'install'" class="menu-page">

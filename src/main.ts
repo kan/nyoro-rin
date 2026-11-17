@@ -3,12 +3,18 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App.vue";
 import { startId } from "./ui/auth";
 import { browserStorage } from "./ui/browser-storage";
+import { takeDailyRequestFromUrl } from "./ui/daily-request";
 import { startInstallOffer } from "./ui/install";
+import { startPushSync } from "./ui/push";
 import { shouldReloadForStaleChunk } from "./ui/stale-chunk";
 import "./styles.css";
 
 // The kan-game.app ID comes in the background; play never waits for it.
 startId();
+// The daily notice follows the ID; a tap on it opens the daily
+// (DESIGN.md 25.8).
+startPushSync();
+takeDailyRequestFromUrl();
 // Before mounting: the browser's install prompt may come before the screens.
 startInstallOffer();
 createApp(App).mount("#app");

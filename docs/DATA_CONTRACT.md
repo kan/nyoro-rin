@@ -52,6 +52,7 @@
 | `nyoro-rin.daily-games.v1` | プレイ中のデイリーの盤面（`version: 1`。ID と日付ごと。「デイリー」） |
 | `nyoro-rin.daily-play-log.v1` | プレイ中のデイリーの試行のプレイログ（`version: 1`） |
 | `nyoro-rin.daily-outbox.v1` | 未送信のデイリーの完了（`version: 1`、同期キューと同じ形、20 件まで） |
+| `nyoro-rin.push-synced` | デイリーの通知の購読を最後にサーバーへ送ったときの ID と `endpoint`（空白区切りの文字列。「デイリーの通知（Web Push）」） |
 
 `sessionStorage`（タブごと）には、`nyoro-rin.stale-chunk-reload` だけを置きます。古いファイルの読み込みに失敗して画面を読み込み直した時刻（ミリ秒）で、1 分以内に繰り返さないために使います（DESIGN.md 21.1）。
 
@@ -150,6 +151,9 @@ TAKO-SEN と違い、ミス数はありません。
 | `GET /api/daily/history`          | ID   | 本人のデイリーの挑戦（新しい順に最大 500 件）|
 | `POST /api/play-logs`             | ID   | 試行 1 回分のプレイログを登録する            |
 | `POST /api/feedback`              | ID   | 感想を 1 件登録する                          |
+| `GET /api/push/key`               | 不要 | デイリーの通知の送信用の公開鍵（VAPID）      |
+| `POST /api/push/subscription`     | ID   | 端末の通知の購読を登録する                   |
+| `DELETE /api/push/subscription`   | ID   | 端末の通知の購読を消す                       |
 
 ### `GET /api/next-puzzle?difficulty=easy|normal|hard`
 
@@ -300,6 +304,30 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 - デイリーの試行のプレイログは `nyoro-rin.daily-play-log.v1` に、通常の試行のログとは別に持つ
 - デイリーの盤面は、ローカルの成績（`nyoro-rin.results.v1`）に入れない
 
+### デイリーの通知（Web Push）
+
+[`DESIGN.md`](./DESIGN.md) 25.8 の通知です（kan/nyoro-rin#8）。TAKO-SEN の同じ節に倣います。サーバーは `src/worker/push.ts`、画面は `src/ui/push.ts`、表示は `public/push-sw.js` です。
+
+- 送信は定期実行（`5 15 * * *`、日本時間 0:05）。購読を 100 件ずつ読み、それぞれへ送る
+- `push_subscriptions`（`0007_push_subscriptions.sql`）に、端末ごとの購読（送り先 URL `endpoint` と、暗号化の鍵 `key_p256dh`・`key_auth`）を、その端末の ID の下に保存する。送り先はブラウザの通知サービス（Google、Mozilla、Apple、Microsoft）のホストの `https:` に限る。定期実行がすべての `endpoint` へ POST するため
+- 1 つの ID につき 20 台（`MAX_SUBSCRIPTIONS_PER_ACCOUNT`）まで。超えた端末は `409 too_many_devices` で断る。古い端末を消すと、その端末は通知がオンに見えたまま届かなくなるため
+- 購読は端末のもの。端末の ID が変わったら、画面が購読を送り直し、新しい ID の下へ移す（`POST` は同じ `endpoint` の行の ID を書き換える）。画面が送り直すのは、ID か `endpoint` が前に送ったとき（`nyoro-rin.push-synced`）と変わったときだけ
+- 退会で、その ID の購読を消す（`ACCOUNT_TABLES`）。退会を知った端末（`410` を受け取った端末）は、自分の購読も解き、次の ID へは持ち越さない。通知サービスが `404` か `410` を返した購読は、送信のときに消す。ほかの失敗は消さず、次の日も送る
+- 名前や同意は求めない。ID を持つ端末ならオンにできる
+- 送信用の鍵は環境ごとの VAPID の鍵の組。公開鍵は `wrangler.jsonc` の `VAPID_PUBLIC_KEY`、秘密鍵は secret の `VAPID_PRIVATE_KEY`。どちらか（または `VAPID_SUBJECT`）がない環境では、`GET /api/push/key` が `{ "publicKey": "" }` を返し、定期実行は何も送らない
+
+`GET /api/push/key` は `{ publicKey }`。画面は購読を作るときにこの鍵を使い、端末にある購読が別の鍵で作られていれば、解いてから作り直す。別の鍵の購読は、設定ではオフに見せ、起動時にも送り直さない。起動時や ID が変わったときの送り直しが `409` なら、その購読を解いてオフにする。
+
+通知サービスが購読を差し替えたとき（`pushsubscriptionchange`）は、`public/push-sw.js` が新しい購読をすぐ `POST /api/push/subscription` へ送る。
+
+`POST /api/push/subscription` の本文は `PushSubscription.toJSON()` の形（`{ endpoint, keys: { p256dh, auth } }`）。受け付けたら `200 { ok: true }`、形や送り先が違えば `400 invalid_subscription`。
+
+`DELETE /api/push/subscription` の本文は `{ endpoint }`。自分の ID の行だけを消し、`200 { ok: true }` を返す（行がなくても同じ）。
+
+通知の本文は `{ title, body, url }`（`url` は `/?daily=1`）を JSON にしたもの。暗号化（`aes128gcm`）で詰め物（padding）をしない。送信ライブラリ（`@block65/webcrypto-web-push`）の `buildPushPayload` は 4 KB まで詰め物をするが、Mozilla の通知サービスは端末によってそれを断る（`413`）。本文は決まった文なので、長さを隠す必要もない。`TTL` は 1 時間、`Urgency` は `normal`。
+
+端末の `public/push-sw.js` は、通知を `tag: "daily"` で出す（前の日の通知が残っていれば置き換える）。押すと、NYORO-RIN を開いている画面（前面のものを優先）で、なければ新しい画面で `url` を開く。画面は `?daily=1` を読んだらすぐアドレスから消し、DESIGN.md 25.8 の条件がそろってからデイリーを開く。
+
 ### プレイログ
 
 [`DESIGN.md`](./DESIGN.md) 20.1 のプレイログです。形式の正本は `src/core/play-log.ts` です。
@@ -381,7 +409,7 @@ ID を持つ本人だけが使います。本人の次の問題の候補を返�
 
 ### 退会
 
-退会は kan-game.app のアカウント画面で行い、ID 基盤が NYORO-RIN の `GameService.deleteAccount` を呼びます。NYORO-RIN はその ID を `deleted_accounts` に記録し、同じトランザクションで完了記録・プロフィール・ランキングの記録・投稿制限の情報・プレイログ・感想・実績・デイリーの挑戦を削除します。デイリーの盤面（`daily_puzzles`）は誰の記録でもないので残します。退会後の ID の Cookie は `410 id_deleted` で断ります。端末のローカル履歴は削除しません。
+退会は kan-game.app のアカウント画面で行い、ID 基盤が NYORO-RIN の `GameService.deleteAccount` を呼びます。NYORO-RIN はその ID を `deleted_accounts` に記録し、同じトランザクションで完了記録・プロフィール・ランキングの記録・投稿制限の情報・プレイログ・感想・実績・デイリーの挑戦・デイリーの通知の購読を削除します。デイリーの盤面（`daily_puzzles`）は誰の記録でもないので残します。退会後の ID の Cookie は `410 id_deleted` で断ります。端末のローカル履歴は削除しません。
 
 kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）として登録する必要があります。
 
@@ -401,12 +429,13 @@ kan/game 側で、NYORO-RIN の GameService を binding（`GAME_NYORO`）とし�
 | `achievements`        | 解除した実績と日時。主キーは `(account_id, achievement_type)`（`0005_achievements.sql`） |
 | `daily_puzzles`       | デイリーの盤面（数字と正解）。主キーは `challenge_date`（`0006_daily.sql`） |
 | `daily_attempts`      | デイリーの挑戦と結果。主キーは `(account_id, challenge_date)`、`(account_id, play_id)` も一意（`0006_daily.sql`） |
+| `push_subscriptions`  | デイリーの通知の購読。主キーは `endpoint`、`account_id` に索引（`0007_push_subscriptions.sql`） |
 
 `0003_next_puzzle.sql` は、`GET /api/next-puzzle` が難易度と版で公開された初回の記録を引くための索引を足します。
 
 `0004_weekly_ranking.sql` は、`GET /api/weekly-ranking` が今週の同意のあとのクリアを表を引かずに数えるための部分索引を足します。記録は変えません。
 
-`0006_daily.sql` は表を足すだけなので、新しい Worker より先に適用します。
+`0006_daily.sql` は表を足すだけなので、新しい Worker より先に適用します。`0007_push_subscriptions.sql` も同じです。
 
 D1 のスキーマ変更はマイグレーションを足して行い、適用済みのマイグレーションを書き換えません。マイグレーションは新しい Worker より先に適用します。
 
@@ -427,3 +456,4 @@ D1 のスキーマ変更はマイグレーションを足して行い、適用�
 13. プレイログの `move` を順に当てると、元に戻す・やり直す・リセットを含めて、プレイヤーが見た盤面に戻る
 14. プレイログと感想は、退会でその ID の分だけ消える。同じ `playId` のプレイログの再送は重複しない
 15. `d1` の盤面は、同じ日付と secret から同じ盤面になる（固定ハッシュ）。デイリーは 1 つの ID で 1 日 1 回だけ始められ、完了の再送は成績を変えない。応答に正解とシードを含めない
+16. 通知の購読は通知サービスのホストだけを受け付け、1 つの ID で 20 台まで。別の ID からは消せず、退会と、通知サービスの `404`・`410` で消える

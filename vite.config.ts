@@ -36,7 +36,8 @@ export default defineConfig({
       server: SERVER_PACKAGES,
     }),
     // An installable app with a service worker, as TAKO-SEN has (its
-    // vite.config.ts): the screens open offline too (DESIGN.md 21.1).
+    // vite.config.ts): the screens open offline too (DESIGN.md 21.1), and
+    // the daily notice is shown (public/push-sw.js, DESIGN.md 25.8).
     VitePWA({
       registerType: "autoUpdate",
       // The manifest's icons are left to the globs below.
@@ -70,13 +71,15 @@ export default defineConfig({
         // alone, so no other JSON joins the precache by accident.
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}", "licenses.json"],
         // Not needed offline: the system fetches the manifest's icons when
-        // the app is added.
+        // the app is added, and push-sw.js is part of the worker itself.
         globIgnores: [
           "pwa-192.png",
           "pwa-512.png",
           "pwa-maskable-512.png",
           "apple-touch-icon.png",
+          "push-sw.js",
         ],
+        importScripts: ["/push-sw.js"],
         // Every page is the app; the API is never answered from the cache.
         // Its answers depend on the device's ID cookie, which a cache key
         // does not see.

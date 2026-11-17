@@ -18,6 +18,8 @@ export const ACCOUNT_TABLES = [
   "feedback",
   "achievements",
   "daily_attempts",
+  // The daily notice's devices (src/worker/push.ts).
+  "push_subscriptions",
 ] as const;
 
 export async function deleteAccount(

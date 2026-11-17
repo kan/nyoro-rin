@@ -32,7 +32,7 @@ export const SERVICE_WORKER_PACKAGES = [
  * there is no nodejs_compat. tests/licenses-plugin.test.ts checks it against
  * the imports.
  */
-export const SERVER_PACKAGES: string[] = [];
+export const SERVER_PACKAGES = ["@block65/webcrypto-web-push"];
 
 /**
  * Virtual modules that bring a package's code into the bundle with no

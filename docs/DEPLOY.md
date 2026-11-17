@@ -38,6 +38,14 @@ NYORO-RIN を kan-game.app で配信する手順です。環境の構成は [`DE
 
    `wrangler.jsonc` の `secrets.required` に入っているので、置かないとデプロイが止まります。
 
+   デイリーの通知（DESIGN.md 25.8）の秘密鍵（`VAPID_PRIVATE_KEY`）も同じように置きます。鍵の組は環境ごとに `node scripts/generate-vapid-keys.ts` で作り、公開鍵を `wrangler.jsonc` の `env.<env>.vars.VAPID_PUBLIC_KEY` に書きます。秘密鍵は repo・issue・チャットに書きません
+
+   ```sh
+   npx wrangler secret put VAPID_PRIVATE_KEY --env <env>
+   ```
+
+   鍵の組を作り直すと、それまでの購読には届かなくなります。端末は通知をいったんオフにしてからオンにし直すと、新しい公開鍵で購読し直します。
+
 3. NYORO-RIN を出す（ビルド → マイグレーション → デプロイを順に行う）
 
    ```sh
@@ -77,6 +85,14 @@ npm run deploy:<env>
 2. `npm run deploy:<env>` で `0006_daily.sql` を当てて出す。`0003`〜`0005` が未適用なら一緒に当たります
 3. 定期実行に `0 14 * * *`（日本時間 23:00、翌日の盤面を作る）と `30 14 * * *`（23:30、23:00 が失敗したときの作り直し）が加わったことを、Cloudflare のダッシュボードの Triggers で確かめる
 
+### デイリーの通知を入れるとき（kan/nyoro-rin#8、既存の環境）
+
+1. `VAPID_PRIVATE_KEY` を置く（上の「初回」の 2）。公開鍵は `wrangler.jsonc` に書いてある。置く前に Worker を出すとデプロイが止まります
+2. `npm run deploy:<env>` で `0007_push_subscriptions.sql` を当てて出す
+3. 定期実行に `5 15 * * *`（日本時間 0:05、通知を送る）が加わったことを、ダッシュボードの Triggers で確かめる
+
+通知は 1 回の定期実行で購読ごとに 1 件の要求を送ります。Workers の 1 回の実行の要求数の上限（有料プランで 1000）に近づいたら、Queues などで送信を分けます（`src/worker/push.ts` の `sendDailyNotifications`）。
+
 ## 公開後の確認
 
 1. `https://nyoro-dev.kan-game.app` を開き、READY から問題を解ける
@@ -87,6 +103,8 @@ npm run deploy:<env>
 6. 次の問題へ移ると `POST /api/play-logs` が `201` を返し、`npm run stats -- summary --env dev` に出る
 7. ポータル（`https://dev.kan-game.app/account`）でテスト用の ID を退会すると、その ID の `completed_plays`・`profiles`・`play_logs`・`feedback`・`daily_attempts` が消える
 8. 名前を決めた 2 つの ID で、盤面の下のカレンダーのボタンからデイリーを開くと同じ盤面が出る。OK で `POST /api/daily/start` が `201` を返し、もう一方の端末や再読み込みでは同じ ID で始め直せない。クリアすると `POST /api/daily/complete` が `201` を返し、2 人がその日のランキングに載る。もう一度ボタンを押すとランキングが開く
+
+9. Android の Chrome と、ホーム画面に追加した iPhone で、メニューの「設定」から「デイリーの開始を通知する」をオンにすると、`POST /api/push/subscription` が `200` を返す。翌日 0:05 ごろに通知が届き、押すとデイリーが開く。オフにすると `DELETE /api/push/subscription` が `200` を返す。定期実行の結果は Workers のログの `daily_push`（`sent`・`gone`・`failed` の件数）に出る
 
 確認の 5〜7 はリモートの D1 を読むので、利用者の承認を得てから行います。
 

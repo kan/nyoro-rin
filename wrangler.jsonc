@@ -25,9 +25,12 @@
   // 3:00 in Japan: deletes again any record a withdrawn ID wrote while it
   // was being deleted (src/worker/accounts.ts). 23:00 in Japan: makes the
   // next day's daily board (src/worker/daily.ts); 23:30 makes it again if
-  // 23:00 failed. Keep src/worker/index.ts SWEEP_CRON, DAILY_CRON and
-  // DAILY_RETRY_CRON the same.
-  "triggers": { "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *"] },
+  // 23:00 failed. 0:05 in Japan: tells subscribed devices the day's daily
+  // has opened (src/worker/push.ts). Keep src/worker/index.ts SWEEP_CRON,
+  // DAILY_CRON, DAILY_RETRY_CRON and NOTICE_CRON the same.
+  "triggers": {
+    "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *", "5 15 * * *"],
+  },
   "vars": {
     // The ID cookie and the keys that verify it (kan/game docs/ID_DESIGN.md
     // 「ID と Cookie」). Locally the keys are kan/game's own (its .dev.vars),
@@ -35,6 +38,10 @@
     "ID_COOKIE_NAME": "__Secure-kgdev_id",
     "ID_ISSUER": "localhost",
     "ID_PUBLIC_KEYS": "[]",
+    // The daily notice's Web Push (scripts/generate-vapid-keys.ts). Locally
+    // it stays off unless scripts/dev.mjs is given VAPID_PUBLIC_KEY and
+    // VAPID_PRIVATE_KEY.
+    "VAPID_SUBJECT": "https://kan-game.app",
   },
   "secrets": {
     // scripts/dev.mjs passes the screen's origin, and a local-only
@@ -64,7 +71,9 @@
       // kan/game's development Worker, which calls back GameService
       // (src/worker/game-service.ts) when a player withdraws.
       "services": [{ "binding": "ID", "service": "kan-game-dev" }],
-      "triggers": { "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *"] },
+      "triggers": {
+        "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *", "5 15 * * *"],
+      },
       "vars": {
         // Must match kan/game's env.dev (its wrangler.jsonc).
         "ID_COOKIE_NAME": "__Secure-kgdev_id",
@@ -74,11 +83,15 @@
         "ID_PUBLIC_KEYS": "[{\"kid\":\"2026-10-18-2515ed\",\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"0KpEL8A2l9DupwZ2uVJVr_ZGy-sRbGJcJg-2Wwi8McU\",\"y\":\"yMVIO135BT3klr-T0Xtr4cRkdkAvfkwxAMaTzoH5EC4\"}]",
         // Not a secret here: the deployed origin is public.
         "ALLOWED_ORIGINS": "https://nyoro-dev.kan-game.app",
+        // The daily notice's Web Push, one key pair per environment
+        // (scripts/generate-vapid-keys.ts). The private key is a secret.
+        "VAPID_PUBLIC_KEY": "BG88AEJoEnEpVrPDYghKGVREdJLDKtl5R6N5Er8uKmh-BLzH4pB51fUMxGZuXfd9-f3C-LnYPk9Uenpmmt9sMbY",
+        "VAPID_SUBJECT": "https://kan-game.app",
       },
-      // Not inherited from the top level. The key of the daily seeds is set
-      // with `wrangler secret put DAILY_SEED_SECRET --env dev`
-      // (docs/DEPLOY.md); it never goes in the repository.
-      "secrets": { "required": ["DAILY_SEED_SECRET"] },
+      // Not inherited from the top level. The key of the daily seeds and
+      // the private VAPID key are set with `wrangler secret put <name> --env
+      // dev` (docs/DEPLOY.md); they never go in the repository.
+      "secrets": { "required": ["DAILY_SEED_SECRET", "VAPID_PRIVATE_KEY"] },
     },
     // `npm run deploy:production`.
     "production": {
@@ -96,7 +109,9 @@
       // kan/game's production Worker, which calls back GameService when a
       // player withdraws.
       "services": [{ "binding": "ID", "service": "kan-game" }],
-      "triggers": { "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *"] },
+      "triggers": {
+        "crons": ["0 18 * * *", "0 14 * * *", "30 14 * * *", "5 15 * * *"],
+      },
       "vars": {
         // Must match kan/game's env.production (its wrangler.jsonc).
         "ID_COOKIE_NAME": "__Secure-kg_id",
@@ -105,9 +120,11 @@
         // kan/game docs/ID_DESIGN.md「鍵の管理」 and copy its new list here.
         "ID_PUBLIC_KEYS": "[{\"kid\":\"2026-10-18-ccfc63\",\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"ddT7jKLdotzN141EdW32MjeKrySOCqm_OGKRbA27NBY\",\"y\":\"UR7l_tKX9mUzRzJElH_IFWQ36a0PggvU803FVXI_yqk\"}]",
         "ALLOWED_ORIGINS": "https://nyoro.kan-game.app",
+        "VAPID_PUBLIC_KEY": "BCDgEGIXMlvhGwUQDtImSvw4EwnOlh300SdhKD4_UvhlKUTtDZK71QkCwDlPIurclcpkUmWUYWjpCQ7ZSMOsj_4",
+        "VAPID_SUBJECT": "https://kan-game.app",
       },
-      // `wrangler secret put DAILY_SEED_SECRET --env production`.
-      "secrets": { "required": ["DAILY_SEED_SECRET"] },
+      // `wrangler secret put <name> --env production`, for each.
+      "secrets": { "required": ["DAILY_SEED_SECRET", "VAPID_PRIVATE_KEY"] },
     },
   },
 }

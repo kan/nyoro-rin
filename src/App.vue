@@ -14,7 +14,7 @@ import {
   watch,
 } from "vue";
 import { achievementDefinition } from "./core/achievements";
-import { loadDailyGame } from "./core/daily";
+import { dailyDate, loadDailyGame } from "./core/daily";
 import { playableDailyPuzzle } from "./ui/daily-board";
 import { type DifficultyChoice } from "./core/difficulty-choice";
 import { type FeedbackContext, type FeedbackSource } from "./core/feedback";
@@ -30,6 +30,7 @@ import MenuDialog, { type MenuPage } from "./ui/MenuDialog.vue";
 import UiIcon from "./ui/UiIcon.vue";
 import { portalUrl } from "./ui/auth";
 import { browserStorage } from "./ui/browser-storage";
+import { dailyRequested } from "./ui/daily-request";
 import { formatScore, formatSeconds } from "./ui/format";
 import { DIFFICULTY_CHOICE_LABELS, DIFFICULTY_LABELS } from "./ui/labels";
 import { useDifficultyChoice } from "./ui/use-difficulty-choice";
@@ -470,6 +471,39 @@ async function openDaily(): Promise<void> {
   }
 }
 
+/**
+ * A tap on the daily notice (DESIGN.md 25.8): the daily opens as the
+ * calendar button would, once the server has told whether the ID has a name
+ * and the board on screen is made, with no dialog open (the tutorial, the
+ * menu, a confirmation). Already on today's board, there is nothing to do;
+ * on an earlier day's, it goes back to the ordinary board first. Without a
+ * connection or an answer about the name, it opens all the same, and
+ * openDaily says why the daily cannot open. Not before onMounted, which
+ * restores the board and opens the first visit's tutorial.
+ */
+const mounted = ref(false);
+watch(
+  () =>
+    mounted.value &&
+    dailyRequested.value &&
+    (online.profileChecked.value ||
+      online.status.value === "offline" ||
+      online.status.value === "unavailable") &&
+    !loading.value &&
+    panel.value === undefined &&
+    !confirmOpen.value &&
+    !dailyOpening.value,
+  (ready) => {
+    if (!ready) return;
+    dailyRequested.value = false;
+    const shown = play.daily.value;
+    if (shown?.date === dailyDate(Date.now())) return;
+    if (shown) backToOrdinary();
+    void openDaily();
+  },
+  { flush: "post" },
+);
+
 /** From the day's board back to the ordinary one, or a new one. */
 function backToOrdinary(): void {
   clearPhase.value = undefined;
@@ -520,6 +554,7 @@ onMounted(() => {
     tutorialFirstVisit.value = true;
     openPanel("tutorial");
   }
+  mounted.value = true;
 });
 
 /** Closed in any way, the tutorial does not come by itself again. */

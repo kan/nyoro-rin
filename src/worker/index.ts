@@ -47,6 +47,13 @@ import {
 } from "./history";
 import { savePlayLog } from "./play-logs";
 import { idPlatform } from "./id-platform";
+import {
+  deleteSubscription,
+  parseSubscription,
+  saveSubscription,
+  sendDailyNotifications,
+  vapidKeys,
+} from "./push";
 import { listLeaderboard } from "./leaderboard";
 import { listNextPuzzleCandidates } from "./next-puzzle";
 import { listWeeklyRanking } from "./weekly-ranking";
@@ -71,6 +78,8 @@ export const DAILY_CRON = "0 14 * * *";
  * day's first request, which costs that request seconds of CPU.
  */
 export const DAILY_RETRY_CRON = "30 14 * * *";
+/** 0:05 in Japan: tells subscribed devices the day's daily has opened (25.8). */
+export const NOTICE_CRON = "5 15 * * *";
 
 type Handler = (
   env: Env,
@@ -78,11 +87,13 @@ type Handler = (
   body: unknown,
 ) => Promise<Response>;
 
-/** A route that needs the ID cookie: its GET, its POST, or both. */
+/** A route that needs the ID cookie: its GET, its POST, its DELETE. */
 interface AccountRoute {
   readonly get?: (env: Env, accountId: string, url: URL) => Promise<Response>;
   readonly post?: Handler;
-  /** The largest body the POST takes, in bytes. */
+  /** Takes a JSON body, as a POST does. */
+  readonly delete?: Handler;
+  /** The largest body the POST or DELETE takes, in bytes. */
   readonly limit?: number;
 }
 
@@ -123,6 +134,12 @@ const ACCOUNT_ROUTES: Readonly<Record<string, AccountRoute>> = {
   },
   "/api/play-logs": { post: postPlayLog, limit: MAX_PLAY_LOG_BYTES },
   "/api/feedback": { post: postFeedback, limit: MAX_FEEDBACK_BYTES },
+  // The daily notice (DESIGN.md 25.8): an ID only, no name or consent.
+  "/api/push/subscription": {
+    post: postPushSubscription,
+    delete: deletePushSubscription,
+    limit: MAX_BODY_BYTES,
+  },
 };
 
 export default {
@@ -145,6 +162,13 @@ export default {
     if (pathname === "/api/weekly-ranking") {
       return weeklyRanking(request, env);
     }
+    if (pathname === "/api/push/key") {
+      if (request.method !== "GET") {
+        return json({ error: "method_not_allowed" }, 405, { Allow: "GET" });
+      }
+      // Empty where push is not set up, so the screen disables the setting.
+      return json({ publicKey: vapidKeys(env)?.publicKey ?? "" });
+    }
     const route = ACCOUNT_ROUTES[pathname];
     if (!route) {
       if (pathname.startsWith("/api/"))
@@ -154,6 +178,7 @@ export default {
     const methods = [
       ...(route.get ? ["GET"] : []),
       ...(route.post ? ["POST"] : []),
+      ...(route.delete ? ["DELETE"] : []),
     ];
     if (!methods.includes(request.method)) {
       return json({ error: "method_not_allowed" }, 405, {
@@ -186,8 +211,9 @@ export default {
       if (request.method === "GET") {
         return await route.get!(env, accountId, new URL(request.url));
       }
+      const handler = request.method === "DELETE" ? route.delete : route.post;
       const body = await readJsonBody(request, route.limit ?? MAX_BODY_BYTES);
-      return body.error ?? (await route.post!(env, accountId, body.value));
+      return body.error ?? (await handler!(env, accountId, body.value));
     } catch (error) {
       logError("api_failure", error);
       return json({ error: "service_unavailable" }, 503);
@@ -213,6 +239,18 @@ export default {
         env.DAILY_SEED_SECRET,
         controller.scheduledTime,
       );
+      return;
+    }
+    if (controller.cron === NOTICE_CRON) {
+      // A board the 23:00 and 23:30 runs missed is made by the first player
+      // who opens the daily, so the notice goes out either way.
+      try {
+        const counts = await sendDailyNotifications(env);
+        console.log(JSON.stringify({ event: "daily_push", ...counts }));
+      } catch (error) {
+        logError("daily_push_run_failure", error);
+        throw error;
+      }
       return;
     }
     console.error(
@@ -552,7 +590,38 @@ async function postFeedback(
   return json({ status: "created" }, 201);
 }
 
-/** A JSON body of a POST, or the response that refuses it. */
+/**
+ * POST /api/push/subscription: the device's subscription, kept under its
+ * ID (DESIGN.md 25.8). A device sent again under another ID moves to it.
+ */
+async function postPushSubscription(
+  env: Env,
+  accountId: string,
+  body: unknown,
+): Promise<Response> {
+  const subscription = parseSubscription(body);
+  if (!subscription) return json({ error: "invalid_subscription" }, 400);
+  if (!(await saveSubscription(env.DB, accountId, subscription, Date.now()))) {
+    return json({ error: "too_many_devices" }, 409);
+  }
+  return json({ ok: true });
+}
+
+/** DELETE /api/push/subscription: `{ endpoint }`, the ID's own only. */
+async function deletePushSubscription(
+  env: Env,
+  accountId: string,
+  body: unknown,
+): Promise<Response> {
+  const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
+  if (typeof endpoint !== "string") {
+    return json({ error: "invalid_subscription" }, 400);
+  }
+  await deleteSubscription(env.DB, accountId, endpoint);
+  return json({ ok: true });
+}
+
+/** A JSON body of a POST or DELETE, or the response that refuses it. */
 async function readJsonBody(
   request: Request,
   limit: number,

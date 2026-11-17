@@ -97,6 +97,10 @@ const apiArgs = [
   "--var",
   "DAILY_SEED_SECRET:nyoro-local-daily-secret",
 ];
+// The daily notice (DESIGN.md 25.8) stays off locally unless a key pair is
+// given in the environment (scripts/generate-vapid-keys.ts).
+for (const name of ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"])
+  if (process.env[name]) apiArgs.push("--var", `${name}:${process.env[name]}`);
 
 // The ID platform takes requests from the screen (through the API) and serves
 // its own portal pages.

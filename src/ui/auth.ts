@@ -111,10 +111,18 @@ export function refreshId(): Promise<void> {
  */
 const UNAUTHORIZED_RETRY_MS = 60_000;
 
+/**
+ * Counts the withdrawals this page has learnt of (a 410). What belonged to
+ * the withdrawn ID on this device, such as the daily notice
+ * (src/ui/push.ts), goes with it rather than to the next ID.
+ */
+export const idWithdrawals = ref(0);
+
 function forgetId(): void {
   id.value = null;
   name.value = null;
   storeId(null);
+  idWithdrawals.value++;
 }
 
 /** How often a device asks again while its ID is not confirmed. */

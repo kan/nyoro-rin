@@ -596,6 +596,11 @@ export function useOnline() {
     }
   }
 
+  /** The API (or its cached answer) has told whether this ID has a name. */
+  const profileChecked = computed(
+    () => id.value !== null && profileCheckedFor.value === id.value,
+  );
+
   /**
    * Whether to invite the player to choose a name: once per device, and only
    * when the API has said this ID has no name for NYORO-RIN yet (in this
@@ -603,11 +608,7 @@ export function useOnline() {
    * it waits, so a later visit can still show it.
    */
   const inviteDue = computed(
-    () =>
-      !inviteSeen.value &&
-      id.value !== null &&
-      profileCheckedFor.value === id.value &&
-      profile.value === null,
+    () => !inviteSeen.value && profileChecked.value && profile.value === null,
   );
 
   function dismissInvite(): void {
@@ -669,6 +670,7 @@ export function useOnline() {
     name,
     status,
     profile: readonly(profile),
+    profileChecked,
     inviteDue,
     dismissInvite,
     clearRanking,
