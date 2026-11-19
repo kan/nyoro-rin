@@ -75,6 +75,8 @@ NYORO-RIN を kan-game.app で配信する手順です。環境の構成は [`DE
 npm run deploy:<env>
 ```
 
+`deploy:production` は、出し終えたら `production` タグを今のコミット（HEAD）へ動かし、出した日時のタグ `production-<UTC の日時>` も足して push します（`tag:production`）。kan/dotfiles の `gh-blog-diff` が、本番に出た変更をこれらのタグから拾うためです。コミットしてから出してください。タグの push だけが失敗したときは、出したコミットで `npm run tag:production` を実行し直します。
+
 マイグレーションを足したときも同じコマンドです（新しい Worker より先に適用されます）。
 
 ### デイリーを入れるとき（kan/nyoro-rin#7、既存の環境）

@@ -22,7 +22,8 @@
     "db:migrate:dev": "wrangler d1 migrations apply DB --env dev --remote",
     "db:migrate:production": "wrangler d1 migrations apply DB --env production --remote",
     "deploy:dev": "npm run build && npm run db:migrate:dev && wrangler deploy --env dev",
-    "deploy:production": "npm run build && npm run db:migrate:production && wrangler deploy --env production"
+    "deploy:production": "npm run build && npm run db:migrate:production && wrangler deploy --env production && npm run tag:production",
+    "tag:production": "node -e \"const{execSync:x}=require('child_process');const t='production-'+new Date().toISOString().replace(/[-:]/g,'').slice(0,15);x('git tag -f production');x('git tag '+t);x('git push -f origin refs/tags/production refs/tags/'+t,{stdio:'inherit'})\""
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.8.2",
