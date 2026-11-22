@@ -1,11 +1,11 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { RANKING_CONSENT_VERSION } from "../src/core/account-profile";
 import type { Difficulty } from "../src/core/model";
-import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
+import { createFakeIdPlatform } from "kan-game/testing/fake-id-platform";
 import {
   createTestIdIssuer,
   type TestIdIssuer,
-} from "./kan-game/test-id-cookie";
+} from "kan-game/testing/test-id-cookie";
 import { DB, call, workerEnv } from "./worker-env";
 
 let issuer: TestIdIssuer;

@@ -15,11 +15,11 @@ import {
   getOrCreateDailyBoard,
 } from "../src/worker/daily";
 import worker, { DAILY_CRON, DAILY_RETRY_CRON } from "../src/worker/index";
-import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
+import { createFakeIdPlatform } from "kan-game/testing/fake-id-platform";
 import {
   createTestIdIssuer,
   type TestIdIssuer,
-} from "./kan-game/test-id-cookie";
+} from "kan-game/testing/test-id-cookie";
 import {
   DB,
   TEST_DAILY_SEED_SECRET,

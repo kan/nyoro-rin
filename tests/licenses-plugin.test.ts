@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   licenseText,
   mergeCopies,
+  OWN_PACKAGES,
   ownLicense,
   packageDirOf,
   repositoryUrl,
@@ -52,9 +53,10 @@ function packagesImportedFrom(entry: string): Set<string> {
       if (specifier.startsWith(".")) queue.push(resolveSource(file, specifier));
       else if (!specifier.startsWith("cloudflare:")) {
         const parts = specifier.split("/");
-        packages.add(
-          specifier.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0],
-        );
+        const name = specifier.startsWith("@")
+          ? `${parts[0]}/${parts[1]}`
+          : parts[0];
+        if (!OWN_PACKAGES.includes(name)) packages.add(name);
       }
     }
   }
@@ -88,6 +90,8 @@ describe("licenses plugin", () => {
       packageDirOf("C:\\repo\\node_modules\\a\\node_modules\\b\\i.js"),
     ).toBe("C:/repo/node_modules/a/node_modules/b");
     expect(packageDirOf("/repo/src/App.vue")).toBeNull();
+    // kan-game.app's own package is our code, not a third-party one.
+    expect(packageDirOf("/repo/node_modules/kan-game/src/token.ts")).toBeNull();
   });
 
   it("keeps a licence's own text, not its bundled dependencies'", () => {

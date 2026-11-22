@@ -1,4 +1,4 @@
-import type { IdRpc } from "./id-rpc";
+import type { IdRpc } from "kan-game/rpc";
 
 /**
  * The ID platform's RPC through the ID binding (kan/game docs/ID_DESIGN.md

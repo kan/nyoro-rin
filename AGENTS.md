@@ -158,7 +158,16 @@ Vue コンポーネントは主に以下を担当します。
 
 ### Worker
 
-`src/worker/` に、認証・完了記録の同期・プロフィール・問題別ランキング・週間ランキング・実績・デイリー・デイリーの通知（Web Push）・プレイログ・感想の API と、ID 基盤から呼ばれる GameService を置きます。`src/worker/id-token.ts` と `src/worker/id-rpc.ts`、`tests/kan-game/` と `tests/id-token-vectors.json` は kan/game からの写しです（写し元は kan/game の `258c299`。それぞれ `src/token.ts`、`src/rpc.ts`、`testing/`、`test-vectors/id-token.json` の写し）。書き換えず、kan/game が変わったら写し直してください。写し直しが要るかは、kan/game で `git log 258c299.. -- src/token.ts src/rpc.ts testing test-vectors` を見て確かめます。写し直したら、ここのコミットを写し元のものに書き換えてください。保存先は D1 です。API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
+`src/worker/` に、認証・完了記録の同期・プロフィール・問題別ランキング・週間ランキング・実績・デイリー・デイリーの通知（Web Push）・プレイログ・感想の API と、ID 基盤から呼ばれる GameService を置きます。保存先は D1 です。
+
+ID の契約（Cookie の検証、RPC の型、名前の規則、テスト用の偽物と Cookie）は、kan/game が配るパッケージ `kan-game` を依存として使います（`kan-game/token`、`kan-game/rpc`、`kan-game/name-rules`、`kan-game/testing/*`。kan/game の `docs/GAME_GUIDE.md`「依存として入れる」）。
+
+- 版は `package.json` の `kan-game` で、kan/game の tag を semver で指します（`github:kan/game#semver:^<版>`）。上げるときは `npm install "kan-game@github:kan/game#semver:^<版>"` を実行します。
+- `kan-game` は TypeScript のソースのまま配られます。`scripts/*.ts` から node で直接 import しないでください（node は `node_modules` の `.ts` の型を除去しません）。
+- パッケージのコードは kan/game のテストが確かめるので、ここでテストベクターによる検証を繰り返しません。
+- `kan-game` は自前のコードとして扱い、ライセンス一覧に載せません（`scripts/licenses-plugin.ts` の `OWN_PACKAGES`）。
+
+API・DB の契約は `docs/DATA_CONTRACT.md` を正とし、変更するときは先に確認してください。
 
 Worker は薄く保ちます。パズルの判定（盤面の再生成・問題 ID の計算・輪と正解の照合）は Core を呼び、Worker 側で再実装しないでください。
 

@@ -5,11 +5,11 @@ import { score } from "../src/core/results";
 import type { AssistLevel } from "../src/core/settings";
 import { rankingWeekOf } from "../src/core/weekly-ranking";
 import { listWeeklyRanking } from "../src/worker/weekly-ranking";
-import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
+import { createFakeIdPlatform } from "kan-game/testing/fake-id-platform";
 import {
   createTestIdIssuer,
   type TestIdIssuer,
-} from "./kan-game/test-id-cookie";
+} from "kan-game/testing/test-id-cookie";
 import { DB, ORIGIN, call, workerEnv } from "./worker-env";
 
 let issuer: TestIdIssuer;

@@ -7,11 +7,11 @@
  */
 import { computed, ref } from "vue";
 import {
-  GAME_NAME_MAX,
-  GAME_NAME_MIN,
-  gameNameProblem,
-  validateGameName,
-} from "../core/account-profile";
+  NAME_MAX,
+  NAME_MIN,
+  nameProblem,
+  normalizeName,
+} from "kan-game/name-rules";
 import { portalUrl } from "./auth";
 import type { Online } from "./use-online";
 
@@ -28,11 +28,11 @@ const privacyUrl = portalUrl("/privacy");
 /** A name the ID already has from another kan-game.app game. */
 const sharedName = computed(() => props.online.name.value);
 
-const nameProblem = computed(() => {
+const nameMessage = computed(() => {
   if (sharedName.value || gameName.value.trim() === "") return "";
-  const problem = gameNameProblem(gameName.value);
+  const problem = nameProblem(gameName.value);
   if (problem === "length") {
-    return `${GAME_NAME_MIN}〜${GAME_NAME_MAX}文字にしてください。`;
+    return `${NAME_MIN}〜${NAME_MAX}文字にしてください。`;
   }
   if (problem === "chars") return "使えない記号が入っています。";
   return "";
@@ -43,7 +43,7 @@ const canSubmit = computed(
     !busy.value &&
     consent.value &&
     !!props.online.id.value &&
-    (!!sharedName.value || validateGameName(gameName.value) !== undefined),
+    (!!sharedName.value || normalizeName(gameName.value) !== null),
 );
 
 const statusText = computed(() => {
@@ -110,15 +110,15 @@ async function submit(): Promise<void> {
           id="account-name"
           v-model="gameName"
           autocomplete="off"
-          :aria-invalid="nameProblem ? 'true' : undefined"
+          :aria-invalid="nameMessage ? 'true' : undefined"
           aria-describedby="account-name-rules account-name-problem"
         />
         <p id="account-name-problem" class="error" aria-live="polite">
-          {{ nameProblem }}
+          {{ nameMessage }}
         </p>
         <p id="account-name-rules" class="note">
-          {{ GAME_NAME_MIN }}〜{{
-            GAME_NAME_MAX
+          {{ NAME_MIN }}〜{{
+            NAME_MAX
           }}文字。文字・数字・絵文字・空白・ハイフン（-）・下線（_）を使えます。「・」などの記号は使えません。ランキングに表示されるので、本名やメールアドレスは使わないでください。kan-game.app
           のほかのゲームでも同じ名前を使い、あとから変えられません。
         </p>

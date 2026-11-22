@@ -1,4 +1,8 @@
-import { importVerificationKeys, verifyIdCookie, type IdKey } from "./id-token";
+import {
+  importVerificationKeys,
+  verifyIdCookie,
+  type IdKey,
+} from "kan-game/token";
 
 /**
  * The account of a request is the kan-game.app ID in its cookie

@@ -5,11 +5,11 @@ import type { CompletedPlayUpload } from "../src/core/online-play";
 import { puzzleId } from "../src/core/puzzle-identity";
 import { encodeSeedCode } from "../src/core/seed-code";
 import { deleteAccount } from "../src/worker/accounts";
-import { createFakeIdPlatform } from "./kan-game/fake-id-platform";
+import { createFakeIdPlatform } from "kan-game/testing/fake-id-platform";
 import {
   createTestIdIssuer,
   type TestIdIssuer,
-} from "./kan-game/test-id-cookie";
+} from "kan-game/testing/test-id-cookie";
 import { DB, call, post, workerEnv } from "./worker-env";
 
 let issuer: TestIdIssuer;

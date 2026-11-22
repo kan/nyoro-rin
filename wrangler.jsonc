@@ -20,7 +20,7 @@
     },
   ],
   // The kan-game.app ID platform (kan/game). /api/id/* is passed to it, and
-  // names are registered through its RPC (src/worker/id-rpc.ts).
+  // names are registered through its RPC (kan-game/rpc).
   "services": [{ "binding": "ID", "service": "kan-game-local" }],
   // 3:00 in Japan: deletes again any record a withdrawn ID wrote while it
   // was being deleted (src/worker/accounts.ts). 23:00 in Japan: makes the

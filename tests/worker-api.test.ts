@@ -11,11 +11,11 @@ import {
 import {
   createFakeIdPlatform,
   type FakeIdPlatform,
-} from "./kan-game/fake-id-platform";
+} from "kan-game/testing/fake-id-platform";
 import {
   createTestIdIssuer,
   type TestIdIssuer,
-} from "./kan-game/test-id-cookie";
+} from "kan-game/testing/test-id-cookie";
 import { ORIGIN, DB, call, post, workerEnv } from "./worker-env";
 
 let issuer: TestIdIssuer;

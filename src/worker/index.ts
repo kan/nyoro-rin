@@ -3,10 +3,8 @@
  * matched by hand, as in TAKO-SEN; anything outside /api/ is the screen.
  */
 import { isClientUnlockable } from "../core/achievements";
-import {
-  RANKING_CONSENT_VERSION,
-  validateGameName,
-} from "../core/account-profile";
+import { normalizeName } from "kan-game/name-rules";
+import { RANKING_CONSENT_VERSION } from "../core/account-profile";
 import { isPlayId } from "../core/attempt";
 import {
   dailyDate,
@@ -330,7 +328,7 @@ async function postProfile(
   body: unknown,
 ): Promise<Response> {
   const fields = body as { displayName?: unknown; consentVersion?: unknown };
-  const requested = validateGameName(fields?.displayName);
+  const requested = normalizeName(fields?.displayName);
   if (!requested || fields?.consentVersion !== RANKING_CONSENT_VERSION) {
     return json({ error: "invalid_profile" }, 400);
   }
