@@ -15,7 +15,7 @@ import {
 import { type CurrentGame, parseGame, serializeGame } from "./current-game";
 import type { LeaderboardEntry } from "./leaderboard";
 import { DAILY_BOARD_SIZE, type Puzzle, hasValidClues } from "./model";
-import { isPuzzleId, puzzleId } from "./puzzle-identity";
+import { isPuzzleId, puzzleIdOfCheckedBoard } from "./puzzle-identity";
 import { solveCompletely } from "./solver";
 import { boardGeometry } from "./board";
 import { DAILY_DIFFICULTY, DAILY_VERSION, isDailyDate } from "./daily-code";
@@ -91,12 +91,20 @@ export function parseDailyStatus(value: unknown): DailyStatus | undefined {
 export async function dailyPuzzleFromBoard(
   board: DailyBoard,
 ): Promise<Puzzle | undefined> {
-  const result = solveCompletely(boardGeometry(board.size), board.clues);
+  // No node budget: the server made the board and checked it unique, and a
+  // hard 10 × 10 one can need more search than the default (puzzleId).
+  // parseDailyBoard has checked the clues, so one solve is the whole check.
+  const result = solveCompletely(boardGeometry(board.size), board.clues, {
+    nodeLimit: Infinity,
+  });
   if (result.status !== "unique") return undefined;
   const puzzle = dailyPuzzle(board, result.solution!);
   try {
-    return (await puzzleId(puzzle)) === board.puzzleId ? puzzle : undefined;
+    return (await puzzleIdOfCheckedBoard(puzzle)) === board.puzzleId
+      ? puzzle
+      : undefined;
   } catch {
+    // No Web Crypto (an insecure context): the ID cannot be checked.
     return undefined;
   }
 }

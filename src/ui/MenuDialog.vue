@@ -139,7 +139,13 @@ async function loadRanking(): Promise<void> {
     ranking.value = null;
     return;
   }
-  const entries = await props.online.fetchLeaderboard(await puzzleId(board));
+  let entries: readonly LeaderboardEntry[] | undefined;
+  try {
+    entries = await props.online.fetchLeaderboard(await puzzleId(board));
+  } catch {
+    // A board puzzleId cannot identify within its search budget.
+    entries = undefined;
+  }
   if (props.puzzle === board) ranking.value = entries ?? null;
 }
 

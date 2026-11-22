@@ -14,6 +14,7 @@ import {
   dailyDate,
   dailyDateOfSeedCode,
   dailyPuzzle,
+  dailyPuzzleFromBoard,
   dailySeedCode,
   isCompletableDailyDate,
   isDailyDate,
@@ -162,6 +163,40 @@ describe("generator d1", () => {
         "2026-11-17": "76051606cbdbb497",
       }
     `);
+  });
+});
+
+// A board that needs more search than the complete solver's default node
+// budget. Its ID was refused as if it had more than one solution, so the
+// day's daily could not be opened (about 1 day in 20).
+describe("a daily board beyond the default search budget", () => {
+  const date = "2026-12-01";
+  const board = (async () => {
+    const puzzle = generateDailyPuzzle(
+      await dailySeed(TEST_SECRET, date),
+      date,
+    );
+    return { puzzle, id: await puzzleId(puzzle, { nodeLimit: Infinity }) };
+  })();
+
+  it("runs out of the default budget", async () => {
+    const { puzzle } = await board;
+    expect(solveCompletely(boardGeometry(10), puzzle.clues).status).toBe(
+      "aborted",
+    );
+    await expect(puzzleId(puzzle)).rejects.toThrow();
+  });
+
+  it("is identified and played on the device without a budget", async () => {
+    const { puzzle, id } = await board;
+    const played = await dailyPuzzleFromBoard({
+      date,
+      puzzleId: id,
+      generatorVersion: puzzle.generatorVersion,
+      size: 10,
+      clues: puzzle.clues,
+    });
+    expect(played?.solution).toEqual(puzzle.solution);
   });
 });
 

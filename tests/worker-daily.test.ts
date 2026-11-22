@@ -1,5 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { newAttempt } from "../src/core/attempt";
+import { boardGeometry } from "../src/core/board";
+import { solveCompletely } from "../src/core/solver";
 import {
   type DailyCompletionUpload,
   type DailyStatus,
@@ -141,6 +143,23 @@ describe("today's board", () => {
     const { headers } = await newAccount();
     const without = workerEnv({ ...env, DAILY_SEED_SECRET: "" });
     expect((await call(without, "/api/daily", { headers })).status).toBe(503);
+  });
+
+  // This day's board needs more search than the complete solver's default
+  // budget (tests/daily.test.ts); its ID was refused, so the day had no board.
+  it("is made on a day whose board needs a long search", async () => {
+    const stored = await getOrCreateDailyBoard(
+      DB,
+      TEST_DAILY_SEED_SECRET,
+      "2026-12-01",
+      Date.now(),
+    );
+    // Still the board that runs out of the default budget.
+    expect(solveCompletely(boardGeometry(10), stored.board.clues).status).toBe(
+      "aborted",
+    );
+    expect(stored.board.puzzleId).toMatch(/^p1:[0-9a-f]{64}$/);
+    expect(stored.board.date).toBe("2026-12-01");
   });
 });
 

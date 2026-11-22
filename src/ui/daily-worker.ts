@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
 /**
- * Works out the daily board off the main thread: a 10 × 10 board takes the
- * complete solver about a second, twice (the solution, then the puzzle ID),
- * which would freeze the screen at the calendar button.
+ * Works out the daily board off the main thread: the complete solver takes
+ * up to about a second on a hard 10 × 10 board on a desktop, several times
+ * that on a slow phone, which would freeze the screen at the calendar button.
  */
 import {
   type DailyBoard,

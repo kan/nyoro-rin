@@ -106,7 +106,9 @@ export async function getOrCreateDailyBoard(
   const existing = await readBoard(db, date);
   if (existing) return existing;
   const puzzle = generateDailyPuzzle(await dailySeed(secret, date), date);
-  const id = await puzzleId(puzzle);
+  // Checked apart from the generator's own check, with no node budget: a
+  // hard 10 × 10 board can need more search than puzzleId's default.
+  const id = await puzzleId(puzzle, { nodeLimit: Infinity });
   await db
     .prepare(
       `INSERT INTO daily_puzzles
