@@ -26,15 +26,15 @@
     "tag:production": "node -e \"const{execSync:x}=require('child_process');const t='production-'+new Date().toISOString().replace(/[-:]/g,'').slice(0,15);x('git tag -f production');x('git tag '+t);x('git push -f origin refs/tags/production refs/tags/'+t,{stdio:'inherit'})\""
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.8.2",
+    "@cloudflare/vitest-plugin": "^1.8.4",
     "@types/node": "^26.6.6",
-    "@vitejs/plugin-vue": "^6.0.10",
-    "prettier": "^3.10.0",
+    "@vitejs/plugin-vue": "^6.0.11",
+    "prettier": "^3.10.1",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vite": "^8.3.8",
     "vite-plugin-pwa": "^2.0.0",
-    "vitest": "^5.1.0",
+    "vitest": "^5.1.1",
     "vue-tsc": "^3.3.14",
     "wrangler": "^4.158.0"
   },
